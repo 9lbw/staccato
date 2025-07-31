@@ -35,9 +35,11 @@ WORKDIR /app
 # Copy binary from builder stage
 COPY --from=builder /app/spotigo .
 
-# Copy configuration files
-COPY config.example.toml config.toml
+# Copy static files
 COPY static/ static/
+
+# Create a basic config file (the app will generate one if missing)
+RUN echo "# Spotigo will generate a proper config file on first run" > config.toml
 
 # Create directories
 RUN mkdir -p music data && \

@@ -101,14 +101,25 @@ jobs:
       run: |
         go build -v -ldflags="-s -w" -o spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} ./cmd/spotigo
 
-    - name: Create release archive
+    - name: Create release archive (Windows)
+      if: matrix.os == 'windows'
+      run: |
+        mkdir release
+        cp spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
+        if (Test-Path "config.example.toml") { cp config.example.toml release/config.toml }
+        if (Test-Path "README.md") { cp README.md release/ }
+        if (Test-Path "INSTALL_YTDLP.md") { cp INSTALL_YTDLP.md release/ }
+        if (Test-Path "NGROK_SETUP.md") { cp NGROK_SETUP.md release/ }
+
+    - name: Create release archive (Unix)
+      if: matrix.os != 'windows'
       run: |
         mkdir -p release
         cp spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
-        cp config.example.toml release/config.toml
-        cp README.md release/
-        cp INSTALL_YTDLP.md release/
-        cp NGROK_SETUP.md release/
+        if [ -f "config.example.toml" ]; then cp config.example.toml release/config.toml; fi
+        if [ -f "README.md" ]; then cp README.md release/; fi
+        if [ -f "INSTALL_YTDLP.md" ]; then cp INSTALL_YTDLP.md release/; fi
+        if [ -f "NGROK_SETUP.md" ]; then cp NGROK_SETUP.md release/; fi
 
     - name: Create ZIP archive (Windows)
       if: matrix.os == 'windows'
