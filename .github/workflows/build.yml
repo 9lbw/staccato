@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     name: Build for ${{ matrix.os }} (${{ matrix.arch }})
@@ -145,6 +149,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      packages: write
     
     steps:
     - name: Checkout code
@@ -158,12 +165,18 @@ jobs:
     - name: Display structure of downloaded files
       run: ls -la artifacts/
 
+    - name: Flatten artifact structure
+      run: |
+        find artifacts -name "*.zip" -exec mv {} . \;
+        find artifacts -name "*.tar.gz" -exec mv {} . \;
+        ls -la *.zip *.tar.gz 2>/dev/null || echo "No archives found"
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          artifacts/**/*.zip
-          artifacts/**/*.tar.gz
+          *.zip
+          *.tar.gz
         generate_release_notes: true
         draft: false
         prerelease: false
