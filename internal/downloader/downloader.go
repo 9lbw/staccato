@@ -156,10 +156,10 @@ func (d *Downloader) processDownload(job *DownloadJob) {
 
 // VideoMetadata represents metadata extracted from a video
 type VideoMetadata struct {
-	Title    string `json:"title"`
-	Artist   string `json:"artist"`
-	Uploader string `json:"uploader"`
-	Duration int    `json:"duration"`
+	Title    string  `json:"title"`
+	Artist   string  `json:"artist"`
+	Uploader string  `json:"uploader"`
+	Duration float64 `json:"duration"`
 }
 
 // getMetadata extracts metadata from a URL without downloading
