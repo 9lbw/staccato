@@ -1,0 +1,201 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          # Windows builds
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            binary_suffix: .exe
+            cgo_enabled: 1
+          - os: windows
+            arch: arm64
+            runner: windows-latest
+            binary_suffix: .exe
+            cgo_enabled: 0
+          
+          # Linux builds
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            binary_suffix: ""
+            cgo_enabled: 1
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            binary_suffix: ""
+            cgo_enabled: 0
+          - os: linux
+            arch: arm
+            runner: ubuntu-latest
+            binary_suffix: ""
+            cgo_enabled: 0
+          
+          # macOS builds
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            binary_suffix: ""
+            cgo_enabled: 1
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            binary_suffix: ""
+            cgo_enabled: 1
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22.4'
+
+    - name: Install dependencies (Linux)
+      if: matrix.os == 'linux' && matrix.cgo_enabled == 1
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-multilib
+
+    - name: Install cross-compilation tools (Linux ARM)
+      if: matrix.os == 'linux' && matrix.arch == 'arm64' && matrix.cgo_enabled == 1
+      run: |
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+        echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run tests
+      if: matrix.os == 'linux' && matrix.arch == 'amd64'
+      run: go test -v ./...
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.os }}
+        GOARCH: ${{ matrix.arch }}
+        CGO_ENABLED: ${{ matrix.cgo_enabled }}
+      run: |
+        go build -v -ldflags="-s -w" -o spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} ./cmd/spotigo
+
+    - name: Create release archive
+      run: |
+        mkdir -p release
+        cp spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
+        cp config.example.toml release/config.toml
+        cp README.md release/
+        cp INSTALL_YTDLP.md release/
+        cp NGROK_SETUP.md release/
+
+    - name: Create ZIP archive (Windows)
+      if: matrix.os == 'windows'
+      run: |
+        Compress-Archive -Path release/* -DestinationPath spotigo-${{ matrix.os }}-${{ matrix.arch }}.zip
+
+    - name: Create TAR archive (Unix)
+      if: matrix.os != 'windows'
+      run: |
+        tar -czf spotigo-${{ matrix.os }}-${{ matrix.arch }}.tar.gz -C release .
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: spotigo-${{ matrix.os }}-${{ matrix.arch }}
+        path: |
+          spotigo-${{ matrix.os }}-${{ matrix.arch }}.zip
+          spotigo-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+        retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Display structure of downloaded files
+      run: ls -la artifacts/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          artifacts/**/*.zip
+          artifacts/**/*.tar.gz
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
