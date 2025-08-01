@@ -129,7 +129,7 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 }
 
 // handleRangeRequest handles HTTP range requests for seeking
-func (ms *MusicServer) handleRangeRequest(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) {
+func (ms *MusicServer) handleRangeRequest(w http.ResponseWriter, _ *http.Request, file *os.File, fileSize int64, rangeHeader string) {
 	// Parse range header (e.g., "bytes=0-1023")
 	ranges := strings.TrimPrefix(rangeHeader, "bytes=")
 	rangeParts := strings.Split(ranges, "-")

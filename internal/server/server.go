@@ -238,11 +238,12 @@ func (ms *MusicServer) setupRoutes() {
 	http.HandleFunc("/api/playlists/", func(w http.ResponseWriter, r *http.Request) {
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) >= 5 && pathParts[4] == "tracks" {
-			if r.Method == "GET" {
+			switch r.Method {
+			case "GET":
 				ms.handleGetPlaylistTracks(w, r)
-			} else if r.Method == "POST" {
+			case "POST":
 				ms.handleAddTrackToPlaylist(w, r)
-			} else if r.Method == "DELETE" {
+			case "DELETE":
 				ms.handleRemoveTrackFromPlaylist(w, r)
 			}
 		} else if r.Method == "DELETE" {
