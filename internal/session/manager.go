@@ -116,7 +116,8 @@ func (sm *SessionManager) CreateSession(userAgent, ipAddress, deviceName string)
 		DeviceName:   deviceName,
 		LastActivity: time.Now(),
 		IsActive:     true,
-		IsBackground: false,
+		// New sessions start in background if there is already an active session
+		IsBackground: sm.activeSession != "",
 	}
 
 	sm.sessions[session.ID] = &PlayerSession{
@@ -285,7 +286,9 @@ func (sm *SessionManager) RemoveSession(sessionID string) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 
+	// Remove session and its event streams
 	delete(sm.sessions, sessionID)
+	delete(sm.eventStreams, sessionID)
 
 	// If this was the active session, find a new one
 	if sm.activeSession == sessionID {
@@ -309,7 +312,9 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 	now := time.Now()
 	for id, session := range sm.sessions {
 		if now.Sub(session.Session.LastActivity) > sm.activityTimeout {
+			// Remove expired session and its event streams
 			delete(sm.sessions, id)
+			delete(sm.eventStreams, id)
 			if sm.activeSession == id {
 				sm.activeSession = ""
 			}
@@ -388,54 +393,37 @@ func (sm *SessionManager) IsActiveSession(sessionID string) bool {
 
 // ShouldSessionPause checks if a session should be paused due to priority rules
 func (sm *SessionManager) ShouldSessionPause(sessionID string) (bool, string) {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
 	session := sm.sessions[sessionID]
 	if session == nil {
 		return false, ""
 	}
-
-	// Check if this session was paused by another session taking priority
+	// If paused flag set, clear and report
 	if session.WasPaused {
-		// Clear the WasPaused flag after reporting it once
-		sm.mutex.RUnlock()
-		sm.mutex.Lock()
 		session.WasPaused = false
-		sm.mutex.Unlock()
-		sm.mutex.RLock()
-
-		activeSession := sm.sessions[sm.activeSession]
-		if activeSession != nil {
-			return true, fmt.Sprintf("Paused by %s", activeSession.Session.DeviceName)
+		if active := sm.sessions[sm.activeSession]; active != nil {
+			return true, fmt.Sprintf("Paused by %s", active.Session.DeviceName)
 		}
 		return true, "Paused by another session"
 	}
-
-	// Original logic for checking if session should be paused based on priority mode
+	// Only check playing sessions
 	if !session.IsPlaying {
 		return false, ""
 	}
-
 	switch sm.priorityMode {
 	case PlayPriority:
-		// In Play Priority mode, only the active session should play
 		if sm.activeSession != sessionID {
-			activeSession := sm.sessions[sm.activeSession]
-			if activeSession != nil {
-				return true, fmt.Sprintf("Paused by %s", activeSession.Session.DeviceName)
+			if active := sm.sessions[sm.activeSession]; active != nil {
+				return true, fmt.Sprintf("Paused by %s", active.Session.DeviceName)
 			}
 			return true, "Paused by another session"
 		}
 	case SessionPlayPriority:
-		// In Session + Play Priority mode, non-active sessions can play but are marked as background
-		// No need to pause, just mark as background
 		return false, ""
-	default: // SessionPriority
-		// In Session Priority mode, all sessions can play simultaneously
+	default:
 		return false, ""
 	}
-
 	return false, ""
 }
 
