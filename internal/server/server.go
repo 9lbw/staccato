@@ -245,7 +245,6 @@ func (ms *MusicServer) setupRoutes() {
 	http.HandleFunc("/api/sessions/update", ms.handleUpdatePlayerStateSession)
 	http.HandleFunc("/api/sessions/priority", ms.handleSessionPriority)
 	http.HandleFunc("/api/sessions/config", ms.handleSessionConfig)
-	http.HandleFunc("/api/sessions/events", ms.handleSessionEvents)
 	http.HandleFunc("/api/sessions/stream", ms.handleSessionStream) // Server-Sent Events stream
 
 	// Download routes

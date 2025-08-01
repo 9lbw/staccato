@@ -135,14 +135,10 @@ func (ms *MusicServer) handleUpdatePlayerStateSession(w http.ResponseWriter, r *
 	// Update session activity
 	ms.sessionManager.UpdateSessionActivity(req.SessionID)
 
-	log.Printf("Session update from %s: trackId=%v, isPlaying=%v, currentTime=%v",
-		req.SessionID, req.TrackID, req.IsPlaying, req.CurrentTime)
-
 	// Handle track updates
 	if req.TrackID != nil {
 		if *req.TrackID == 0 {
 			// Clear track for this session
-			log.Printf("Clearing track for session %s", req.SessionID)
 			ms.sessionManager.UpdatePlayerState(req.SessionID, nil, false, 0)
 		} else {
 			// Get track from database
@@ -385,49 +381,6 @@ func (ms *MusicServer) handleSessionConfig(w http.ResponseWriter, r *http.Reques
 		"success": true,
 		"message": "Session configuration updated successfully",
 	}
-	json.NewEncoder(w).Encode(response)
-}
-
-// handleSessionEvents provides session state polling for cross-session communication
-func (ms *MusicServer) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
-
-	// Get session ID from query params
-	sessionID := r.URL.Query().Get("sessionId")
-	if sessionID == "" {
-		http.Error(w, "Session ID required", http.StatusBadRequest)
-		return
-	}
-
-	// Get all sessions and active session
-	sessions := ms.sessionManager.GetAllSessions()
-	activeSession := ms.sessionManager.GetActiveSession()
-	mySession := ms.sessionManager.GetSession(sessionID)
-
-	// Check if this session should pause due to priority rules
-	shouldPause, pauseReason := ms.sessionManager.ShouldSessionPause(sessionID)
-
-	response := map[string]interface{}{
-		"sessionId":     sessionID,
-		"isActive":      ms.sessionManager.IsActiveSession(sessionID),
-		"shouldPause":   shouldPause,
-		"pauseReason":   pauseReason,
-		"activeSession": activeSession,
-		"mySession":     mySession,
-		"totalSessions": len(sessions),
-		"priorityMode": func() string {
-			switch ms.sessionManager.GetPriorityMode() {
-			case session.PlayPriority:
-				return "play"
-			case session.SessionPlayPriority:
-				return "session_play"
-			default:
-				return "session"
-			}
-		}(),
-	}
-
 	json.NewEncoder(w).Encode(response)
 }
 

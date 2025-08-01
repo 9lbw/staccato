@@ -5,7 +5,6 @@ let currentSection = 'library';
 let currentPlaylistId = null;
 let selectedTrackId = null;
 let lastTrackCount = 0;
-let updateInterval;
 let currentTrackList = []; // Stores the current list of tracks being played
 let currentTrackIndex = -1; // Index of currently playing track in the list
 let currentTrackId = null; // ID of currently playing track
@@ -55,7 +54,6 @@ async function init() {
     
     await loadTracks();
     await loadPlaylists();
-    startTrackCountMonitoring();
     setupKeyboardShortcuts();
     
     // Start checking session status periodically
@@ -79,13 +77,6 @@ function showNotification(message) {
     setTimeout(() => {
         stats.style.color = '#666';
     }, 3000);
-}
-
-// Monitor for new tracks
-function startTrackCountMonitoring() {
-    updateInterval = setInterval(async () => {
-        // This could be implemented to check for new tracks periodically
-    }, 2000); // Check every 2 seconds
 }
 
 // Update stats display

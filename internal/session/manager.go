@@ -168,33 +168,46 @@ func (sm *SessionManager) UpdatePlayerState(sessionID string, track *models.Trac
 		session.LastUpdate = time.Now()
 		session.Session.LastActivity = time.Now()
 
-		log.Printf("DEBUG: Session %s state change: wasPlaying=%v, nowPlaying=%v, priorityMode=%v",
-			sessionID, wasPlaying, isPlaying, sm.priorityMode)
-
 		// Handle priority logic based on mode
 		if isPlaying && !wasPlaying {
 			// Session just started playing
 			session.PlayStarted = time.Now()
-			log.Printf("DEBUG: Session %s just started playing, triggering priority logic", sessionID)
-
-			switch sm.priorityMode {
-			case PlayPriority:
-				sm.handlePlayPriority(sessionID, isPlaying)
-			case SessionPlayPriority:
-				sm.handleSessionPlayPriority(sessionID, isPlaying)
-			default: // SessionPriority
-				// If this session just started playing and no active session, make it active
-				if sm.activeSession == "" || !sm.isSessionActive(sm.activeSession) {
-					sm.activeSession = sessionID
-					sm.triggerSessionChangeCallback()
-				}
-			}
+			sm.handlePriorityChange(sessionID, isPlaying)
+		} else if isPlaying && wasPlaying {
+			// Session is still playing - check if we need to enforce priority
+			// This handles cases where sessions reconnect after server restart
+			sm.handlePlayingSessionUpdate(sessionID)
 		} else if !isPlaying && wasPlaying {
 			// Session just stopped playing, clear the paused flag
 			session.WasPaused = false
-			log.Printf("DEBUG: Session %s stopped playing, cleared paused flag", sessionID)
-		} else if isPlaying {
-			log.Printf("DEBUG: Session %s is playing but was already playing (wasPlaying=%v)", sessionID, wasPlaying)
+		}
+	}
+}
+
+// handlePriorityChange handles priority logic when a session starts playing
+func (sm *SessionManager) handlePriorityChange(sessionID string, isPlaying bool) {
+	switch sm.priorityMode {
+	case PlayPriority:
+		sm.handlePlayPriority(sessionID, isPlaying)
+	case SessionPlayPriority:
+		sm.handleSessionPlayPriority(sessionID, isPlaying)
+	default: // SessionPriority
+		// If this session just started playing and no active session, make it active
+		if sm.activeSession == "" || !sm.isSessionActive(sm.activeSession) {
+			sm.activeSession = sessionID
+			sm.triggerSessionChangeCallback()
+		}
+	}
+}
+
+// handlePlayingSessionUpdate checks if a currently playing session should take priority
+func (sm *SessionManager) handlePlayingSessionUpdate(sessionID string) {
+	if sm.priorityMode == PlayPriority {
+		// In Play Priority mode, if this session is playing but not active, it should take priority
+		if sm.activeSession != sessionID && sm.sessions[sessionID].IsPlaying {
+			log.Printf("Session %s is playing but not active, taking priority from %s",
+				sessionID, sm.activeSession)
+			sm.handlePlayPriority(sessionID, true)
 		}
 	}
 }

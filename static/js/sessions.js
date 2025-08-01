@@ -87,19 +87,11 @@ function startSessionEventStream() {
     eventSource.onmessage = function(event) {
         try {
             const data = JSON.parse(event.data);
-            console.log('SSE session event received:', data);
             
             if (data.type === 'pauseCommand' && data.shouldPause) {
                 const audioPlayer = document.getElementById('audioPlayer');
-                console.log('🛑 SSE PAUSE COMMAND RECEIVED:', {
-                    reason: data.pauseReason,
-                    audioPlayerExists: !!audioPlayer,
-                    isCurrentlyPlaying: audioPlayer ? !audioPlayer.paused : false,
-                    audioSrc: audioPlayer ? audioPlayer.src : 'none'
-                });
                 
                 if (audioPlayer && !audioPlayer.paused) {
-                    console.log(`🛑 INSTANTLY PAUSING PLAYBACK: ${data.pauseReason}`);
                     audioPlayer.pause();
                     
                     // Update play button
@@ -114,10 +106,6 @@ function startSessionEventStream() {
                     
                     // Update Discord RPC
                     updateDiscordRPC();
-                } else if (audioPlayer) {
-                    console.log('Audio player already paused or no source');
-                } else {
-                    console.log('No audio player found');
                 }
             } else if (data.type === 'sessionState') {
                 // Update session status
@@ -125,7 +113,6 @@ function startSessionEventStream() {
                 isActiveSession = data.isActive;
                 
                 if (wasActive !== isActiveSession) {
-                    console.log(`Session active status changed: ${isActiveSession ? 'ACTIVE' : 'INACTIVE'}`);
                     updateSessionStatus();
                 }
             }
@@ -147,69 +134,6 @@ function startSessionEventStream() {
     eventSource.onopen = function(event) {
         console.log('SSE connection opened for session:', sessionId);
     };
-}
-
-// Legacy polling function - keeping as fallback
-async function checkSessionEvents() {
-    if (!sessionId) return;
-    
-    try {
-        const response = await fetch(`/api/sessions/events?sessionId=${sessionId}`);
-        if (response.ok) {
-            const data = await response.json();
-            
-            console.log('Session events check:', {
-                sessionId: sessionId,
-                shouldPause: data.shouldPause,
-                pauseReason: data.pauseReason,
-                isActive: data.isActive
-            });
-            
-            // Update session status
-            const wasActive = isActiveSession;
-            isActiveSession = data.isActive;
-            
-            if (wasActive !== isActiveSession) {
-                console.log(`Session active status changed: ${isActiveSession ? 'ACTIVE' : 'INACTIVE'}`);
-                updateSessionStatus();
-            }
-            
-            // Handle pause commands from other sessions
-            if (data.shouldPause) {
-                const audioPlayer = document.getElementById('audioPlayer');
-                console.log('PAUSE COMMAND RECEIVED:', {
-                    reason: data.pauseReason,
-                    audioPlayerExists: !!audioPlayer,
-                    isCurrentlyPlaying: audioPlayer ? !audioPlayer.paused : false,
-                    audioSrc: audioPlayer ? audioPlayer.src : 'none'
-                });
-                
-                if (audioPlayer && !audioPlayer.paused) {
-                    console.log(`🛑 FORCIBLY PAUSING PLAYBACK: ${data.pauseReason}`);
-                    audioPlayer.pause();
-                    
-                    // Update play button
-                    const playPauseBtn = document.getElementById('playPauseBtn');
-                    if (playPauseBtn) {
-                        const icon = playPauseBtn.querySelector('i');
-                        if (icon) icon.className = 'nf nf-md-play';
-                    }
-                    
-                    // Show notification
-                    showNotification(`Playback paused: ${data.pauseReason}`);
-                    
-                    // Update Discord RPC
-                    updateDiscordRPC();
-                } else if (audioPlayer) {
-                    console.log('Audio player already paused or no source');
-                } else {
-                    console.log('No audio player found');
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Error checking session events:', error);
-    }
 }
 
 // Update Discord RPC with current state (session-aware)
