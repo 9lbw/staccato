@@ -1,0 +1,133 @@
+/* Track and Playlist Grid Styles */
+.track-grid, .playlist-container {
+    display: grid;
+    gap: 2px;
+    background: #333;
+}
+
+.track-item, .playlist-item {
+    background: #111;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #1a1a1a;
+    transition: none;
+    flex-wrap: wrap;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.track-item:hover, .playlist-item:hover {
+    background: #1a1a1a;
+}
+
+.track-item:active {
+    background: #222;
+}
+
+.track-item.playing {
+    background: #1a1a1a;
+    border-left: 4px solid #ffffff;
+}
+
+.track-item.playing .track-title {
+    color: #ffffff;
+}
+
+.track-info, .playlist-meta {
+    flex-grow: 1;
+    min-width: 200px;
+}
+
+.track-title, .playlist-name {
+    font-size: 14px;
+    font-weight: normal;
+    margin-bottom: 4px;
+    color: #ffffff;
+    word-break: break-word;
+}
+
+.track-artist, .playlist-info {
+    color: #888;
+    font-size: 12px;
+    text-transform: uppercase;
+    word-break: break-word;
+}
+
+.playlist-info {
+    font-size: 11px;
+    letter-spacing: 1px;
+}
+
+.track-actions, .playlist-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.play-btn {
+    background: #ffffff;
+    color: #000000;
+    border: none;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.play-btn:hover {
+    background: #cccccc;
+}
+
+.add-to-playlist-btn {
+    background: #000;
+    color: #fff;
+    border: 1px solid #333;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.add-to-playlist-btn:hover {
+    border-color: #666;
+}
+
+.playlist-item {
+    padding: 20px;
+    gap: 15px;
+}
+
+.playlist-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #333;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.back-btn {
+    background: #000;
+    color: #fff;
+    border: 1px solid #333;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.back-btn:hover {
+    border-color: #666;
+}

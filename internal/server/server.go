@@ -57,8 +57,23 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 	// Create player state manager
 	playerState := player.NewStateManager()
 
-	// Create session manager
-	sessionManager := session.NewSessionManager()
+	// Create session manager with configured priority mode
+	var priorityMode session.PriorityMode
+	var modeStr string
+	switch cfg.Session.PriorityMode {
+	case "play":
+		priorityMode = session.PlayPriority
+		modeStr = "Play Priority (Spotify-like behavior)"
+	case "session_play":
+		priorityMode = session.SessionPlayPriority
+		modeStr = "Session + Play Priority (Background playback)"
+	default:
+		priorityMode = session.SessionPriority
+		modeStr = "Session Priority (Original behavior)"
+	}
+
+	log.Printf("Session management mode: %s", modeStr)
+	sessionManager := session.NewSessionManagerWithMode(priorityMode)
 
 	server := &MusicServer{
 		db:             db,
@@ -70,6 +85,9 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		playerState:    playerState,
 		sessionManager: sessionManager,
 	}
+
+	// Set up session change callback for Discord RPC updates
+	sessionManager.SetSessionChangeCallback(server.handleSessionChange)
 
 	// Start Discord RPC service if enabled
 	if cfg.Discord.Enabled {
@@ -225,6 +243,10 @@ func (ms *MusicServer) setupRoutes() {
 	http.HandleFunc("/api/sessions", ms.handleGetSessions)
 	http.HandleFunc("/api/sessions/active", ms.handleSetActiveSession)
 	http.HandleFunc("/api/sessions/update", ms.handleUpdatePlayerStateSession)
+	http.HandleFunc("/api/sessions/priority", ms.handleSessionPriority)
+	http.HandleFunc("/api/sessions/config", ms.handleSessionConfig)
+	http.HandleFunc("/api/sessions/events", ms.handleSessionEvents)
+	http.HandleFunc("/api/sessions/stream", ms.handleSessionStream) // Server-Sent Events stream
 
 	// Download routes
 	http.HandleFunc("/api/download", ms.handleDownloadMusic)
@@ -265,4 +287,54 @@ func (ms *MusicServer) Shutdown() {
 	ms.stopFileWatcher()
 
 	log.Println("Music server shutdown complete")
+}
+
+// handleSessionChange handles session priority changes and updates Discord RPC accordingly
+func (ms *MusicServer) handleSessionChange(activeSession *session.PlayerSession, backgroundSessions []*session.PlayerSession) {
+	if !ms.config.Discord.Enabled || ms.discordRPC == nil {
+		return
+	}
+
+	// Update Discord RPC based on the active session
+	if activeSession != nil && activeSession.Track != nil && activeSession.IsPlaying {
+		// Update Discord with the active session's track
+		err := ms.discordRPC.UpdateNowPlaying(
+			activeSession.Track,
+			activeSession.IsPlaying,
+			activeSession.CurrentTime,
+			activeSession.Track.Duration,
+		)
+		if err != nil {
+			log.Printf("Failed to update Discord RPC: %v", err)
+		}
+	} else {
+		// No active session or not playing, set to idle
+		err := ms.discordRPC.SetIdle()
+		if err != nil {
+			log.Printf("Failed to set Discord RPC to idle: %v", err)
+		}
+	}
+
+	// Log session changes for debugging
+	if activeSession != nil {
+		log.Printf("Active session changed to: %s (%s) - %s",
+			activeSession.Session.ID,
+			activeSession.Session.DeviceName,
+			func() string {
+				if activeSession.Track != nil {
+					return activeSession.Track.Title
+				}
+				return "No track"
+			}())
+	} else {
+		log.Printf("No active session")
+	}
+
+	// Log background sessions
+	for _, bgSession := range backgroundSessions {
+		log.Printf("Background session: %s (%s) - Playing: %v",
+			bgSession.Session.ID,
+			bgSession.Session.DeviceName,
+			bgSession.IsPlaying)
+	}
 }
