@@ -42,7 +42,7 @@ func (d *RPCService) Connect() error {
 	}
 
 	d.connected = true
-	log.Println("✅ Connected to Discord RPC")
+	log.Println("Connected to Discord RPC")
 
 	// Set initial idle state
 	d.SetIdle()
@@ -57,7 +57,7 @@ func (d *RPCService) Disconnect() {
 
 	client.Logout()
 	d.connected = false
-	log.Println("🔌 Disconnected from Discord RPC")
+	log.Println("Disconnected from Discord RPC")
 }
 
 // UpdateNowPlaying updates Discord status with currently playing track

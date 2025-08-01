@@ -27,7 +27,7 @@ func (ms *MusicServer) startFileWatcher() error {
 		return err
 	}
 
-	log.Printf("📁 File watcher started for: %s", ms.config.Music.LibraryPath)
+	log.Printf("File watcher started for: %s", ms.config.Music.LibraryPath)
 	return nil
 }
 
@@ -88,14 +88,14 @@ func (ms *MusicServer) handleFileEvent(event fsnotify.Event) {
 		// Check if it's a new directory
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			ms.watcher.Add(event.Name)
-			log.Printf("📁 Watching new directory: %s", event.Name)
+			log.Printf("Watching new directory: %s", event.Name)
 		}
 	}
 }
 
 // handleNewFile processes newly added audio files
 func (ms *MusicServer) handleNewFile(filePath string) {
-	log.Printf("🎵 New audio file detected: %s", filePath)
+	log.Printf("New audio file detected: %s", filePath)
 
 	// Check if file already exists in database
 	exists, err := ms.db.TrackExists(filePath)
@@ -121,12 +121,12 @@ func (ms *MusicServer) handleNewFile(filePath string) {
 		return
 	}
 
-	log.Printf("✅ Added new track: %s - %s (ID: %d)", track.Artist, track.Title, id)
+	log.Printf("Added new track: %s - %s (ID: %d)", track.Artist, track.Title, id)
 }
 
 // handleRemovedFile processes removed audio files
 func (ms *MusicServer) handleRemovedFile(filePath string) {
-	log.Printf("🗑️ Audio file removed: %s", filePath)
+	log.Printf("Audio file removed: %s", filePath)
 
 	err := ms.db.RemoveTrackByPath(filePath)
 	if err != nil {
@@ -134,7 +134,7 @@ func (ms *MusicServer) handleRemovedFile(filePath string) {
 		return
 	}
 
-	log.Printf("✅ Removed track from database: %s", filePath)
+	log.Printf("Removed track from database: %s", filePath)
 }
 
 // stopFileWatcher stops the file watcher

@@ -60,7 +60,7 @@ func (s *Service) StartTunnel(ctx context.Context, localAddress string) error {
 		return nil // Service is disabled
 	}
 
-	log.Println("🌐 Starting ngrok tunnel...")
+	log.Println("Starting ngrok tunnel...")
 
 	// Build endpoint options
 	var endpointOpts []ngrok.EndpointOption
@@ -90,12 +90,12 @@ on_http_request:
 
 	s.tunnel = tunnel
 
-	log.Printf("✅ Ngrok tunnel active!")
-	log.Printf("🌍 Public URL: %s", tunnel.URL().String())
-	log.Printf("🔗 Forwarding to: %s", localAddress)
+	log.Printf("Ngrok tunnel active!")
+	log.Printf("Public URL: %s", tunnel.URL().String())
+	log.Printf("Forwarding to: %s", localAddress)
 
 	if s.config.EnableAuth {
-		log.Printf("🔐 OAuth authentication enabled (%s)", s.config.AuthProvider)
+		log.Printf("OAuth authentication enabled (%s)", s.config.AuthProvider)
 	}
 
 	return nil
@@ -115,7 +115,7 @@ func (s *Service) Stop() error {
 		return nil
 	}
 
-	log.Println("🔌 Stopping ngrok tunnel...")
+	log.Println("Stopping ngrok tunnel...")
 	return s.tunnel.Close()
 }
 

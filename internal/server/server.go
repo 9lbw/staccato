@@ -180,12 +180,12 @@ func (ms *MusicServer) Start() {
 
 	localAddress := fmt.Sprintf("http://%s", ms.config.GetAddress())
 
-	log.Printf("🎵 Staccato server starting on port %s", ms.config.Server.Port)
-	log.Printf("📁 Music library contains %d tracks", trackCount)
+	log.Printf("Staccato server starting on port %s", ms.config.Server.Port)
+	log.Printf("Music library contains %d tracks", trackCount)
 	if ms.config.Music.WatchForChanges {
-		log.Printf("🔍 File watcher monitoring: %s", ms.config.Music.LibraryPath)
+		log.Printf("File watcher monitoring: %s", ms.config.Music.LibraryPath)
 	}
-	log.Printf("🌐 Local access: %s", localAddress)
+	log.Printf("Local access: %s", localAddress)
 
 	// Start ngrok tunnel if enabled
 	if ms.ngrokService != nil {
@@ -253,7 +253,7 @@ func (ms *MusicServer) setupRoutes() {
 
 // Shutdown gracefully shuts down the music server
 func (ms *MusicServer) Shutdown() {
-	log.Println("🔌 Shutting down music server...")
+	log.Println("Shutting down music server...")
 
 	// Disconnect Discord RPC
 	if ms.discordRPC != nil {
@@ -263,5 +263,5 @@ func (ms *MusicServer) Shutdown() {
 	// Stop file watcher
 	ms.stopFileWatcher()
 
-	log.Println("✅ Music server shutdown complete")
+	log.Println("Music server shutdown complete")
 }

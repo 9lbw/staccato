@@ -40,7 +40,7 @@ func (ms *MusicServer) handleCreateSession(w http.ResponseWriter, r *http.Reques
 
 	session := ms.sessionManager.CreateSession(userAgent, ipAddress, req.DeviceName)
 
-	log.Printf("🔗 New session created: %s (%s)", session.ID, req.DeviceName)
+	log.Printf("New session created: %s (%s)", session.ID, req.DeviceName)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sessionId":  session.ID,
@@ -91,7 +91,7 @@ func (ms *MusicServer) handleSetActiveSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	log.Printf("🎮 Active session changed to: %s", req.SessionID)
+	log.Printf("Active session changed to: %s", req.SessionID)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":         true,

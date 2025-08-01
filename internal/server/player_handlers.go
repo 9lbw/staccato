@@ -158,5 +158,5 @@ func (ms *MusicServer) handleTrackPlay(w http.ResponseWriter, r *http.Request) {
 	response := map[string]string{"status": "success", "message": "Track play state updated"}
 	json.NewEncoder(w).Encode(response)
 
-	log.Printf("🎵 Now playing: %s - %s", track.Artist, track.Title)
+	log.Printf("Now playing: %s - %s", track.Artist, track.Title)
 }

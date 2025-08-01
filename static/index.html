@@ -1426,7 +1426,7 @@
                     const data = await response.json();
                     sessionId = data.sessionId;
                     isActiveSession = data.isActive;
-                    console.log(`📱 Session created: ${sessionId} (${deviceName})${isActiveSession ? ' - ACTIVE' : ''}`);
+                    console.log(`Session created: ${sessionId} (${deviceName})${isActiveSession ? ' - ACTIVE' : ''}`);
                     
                     // Update UI to show session status
                     updateSessionStatus();
@@ -1475,7 +1475,7 @@
                     isActiveSession = data.activeSessionId === sessionId;
                     
                     if (wasActive !== isActiveSession) {
-                        console.log(`🎮 Session status changed: ${isActiveSession ? 'ACTIVE' : 'INACTIVE'}`);
+                        console.log(`Session status changed: ${isActiveSession ? 'ACTIVE' : 'INACTIVE'}`);
                         updateSessionStatus();
                     }
                 }
