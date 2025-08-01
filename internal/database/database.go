@@ -3,7 +3,7 @@ package database
 import (
 	"database/sql"
 
-	"spotigo/pkg/models"
+	"staccato/pkg/models"
 
 	_ "github.com/mattn/go-sqlite3"
 )

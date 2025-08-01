@@ -1,0 +1,47 @@
+[server]
+port = "8080"
+host = "0.0.0.0"
+static_dir = "./static"
+enable_cors = true
+read_timeout_seconds = 30
+
+[database]
+path = "./staccato.db"
+max_connections = 10
+
+[music]
+library_path = "./music"
+supported_formats = [".flac", ".mp3", ".wav", ".m4a"]
+watch_for_changes = true
+scan_on_startup = true
+
+[logging]
+level = "info"
+format = "text"
+file = ""
+
+[downloader]
+enabled = true
+yt_dlp_path = "yt-dlp"
+max_concurrent_downloads = 2
+audio_format = "mp3"
+audio_quality = "0"
+allowed_domains = ["youtube.com", "youtu.be", "soundcloud.com"]
+
+[ngrok]
+enabled = false
+auth_token = ""
+domain = ""
+region = "us"
+enable_auth = false
+auth_provider = "google"
+
+# Discord Rich Presence Configuration
+[discord]
+enabled = false
+# You need to create a Discord application at https://discord.com/developers/applications
+# and replace this with your actual Application ID
+application_id = "1234567890123456789"
+# These are image keys you can upload to your Discord application
+large_image_key = "staccato_logo"
+small_image_key = "music_note"

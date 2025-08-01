@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"spotigo/pkg/models"
+	"staccato/pkg/models"
 
 	"github.com/dhowden/tag"
 )

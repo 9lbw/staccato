@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"spotigo/pkg/models"
+	"staccato/pkg/models"
 )
 
 // handleHome serves the HTML file from the static directory

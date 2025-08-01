@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"spotigo/internal/config"
+	"staccato/internal/config"
 
 	"github.com/joho/godotenv"
 	"golang.ngrok.com/ngrok/v2"

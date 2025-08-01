@@ -142,6 +142,28 @@
             border-color: #666;
         }
         
+        .session-status {
+            font-size: 10px;
+            padding: 8px 12px;
+            border: 1px solid;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-left: 10px;
+            white-space: nowrap;
+        }
+        
+        .session-active {
+            color: #1db954;
+            border-color: #1db954;
+            background: rgba(29, 185, 84, 0.1);
+        }
+        
+        .session-inactive {
+            color: #888;
+            border-color: #444;
+            background: rgba(68, 68, 68, 0.1);
+        }
+        
         .sort-select option {
             background: #000;
             color: #fff;
@@ -1154,6 +1176,7 @@
                     <option value="default">SORT: ARTIST/ALBUM</option>
                     <option value="album">SORT: ALBUM</option>
                 </select>
+                <div id="session-status" class="session-status session-inactive">CONNECTING...</div>
             </div>
             <button class="btn" onclick="showCreatePlaylistModal()">NEW PLAYLIST</button>
         </div>
@@ -1352,6 +1375,9 @@
         let updateInterval;
         let currentTrackList = []; // Stores the current list of tracks being played
         let currentTrackIndex = -1; // Index of currently playing track in the list
+        let currentTrackId = null; // ID of currently playing track
+        let sessionId = null; // Current session ID
+        let isActiveSession = false; // Whether this is the active session
         
         // Player state variables
         let isShuffled = false;
@@ -1386,12 +1412,142 @@
             }
         });
         
+        // Session management
+        async function createSession() {
+            try {
+                const deviceName = getDeviceName();
+                const response = await fetch('/api/sessions/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deviceName: deviceName })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    sessionId = data.sessionId;
+                    isActiveSession = data.isActive;
+                    console.log(`📱 Session created: ${sessionId} (${deviceName})${isActiveSession ? ' - ACTIVE' : ''}`);
+                    
+                    // Update UI to show session status
+                    updateSessionStatus();
+                } else {
+                    console.error('Failed to create session');
+                }
+            } catch (error) {
+                console.error('Error creating session:', error);
+            }
+        }
+        
+        // Get device name based on user agent
+        function getDeviceName() {
+            const ua = navigator.userAgent.toLowerCase();
+            
+            if (ua.includes('mobile') || ua.includes('android')) {
+                if (ua.includes('android')) return 'Android Device';
+                return 'Mobile Device';
+            }
+            if (ua.includes('iphone')) return 'iPhone';
+            if (ua.includes('ipad')) return 'iPad';
+            if (ua.includes('mac') || ua.includes('macintosh')) return 'Mac';
+            if (ua.includes('windows')) return 'Windows PC';
+            if (ua.includes('linux')) return 'Linux PC';
+            
+            return 'Web Browser';
+        }
+        
+        // Update session status in UI
+        function updateSessionStatus() {
+            // You can add a visual indicator here
+            const statusElement = document.getElementById('session-status');
+            if (statusElement) {
+                statusElement.textContent = isActiveSession ? 'CONTROLLING DISCORD' : 'BACKGROUND SESSION';
+                statusElement.className = isActiveSession ? 'session-active' : 'session-inactive';
+            }
+        }
+        
+        // Check if other sessions are active
+        async function checkSessionStatus() {
+            try {
+                const response = await fetch('/api/sessions');
+                if (response.ok) {
+                    const data = await response.json();
+                    const wasActive = isActiveSession;
+                    isActiveSession = data.activeSessionId === sessionId;
+                    
+                    if (wasActive !== isActiveSession) {
+                        console.log(`🎮 Session status changed: ${isActiveSession ? 'ACTIVE' : 'INACTIVE'}`);
+                        updateSessionStatus();
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking session status:', error);
+            }
+        }
+
+        // Discord RPC integration
+        let discordUpdateTimeout;
+        
+        // Update Discord RPC with current state (session-aware)
+        async function updateDiscordRPC() {
+            if (!sessionId) {
+                console.warn('No session ID available for Discord RPC update');
+                return;
+            }
+            
+            // Debounce rapid updates
+            clearTimeout(discordUpdateTimeout);
+            discordUpdateTimeout = setTimeout(async () => {
+                try {
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    const state = {
+                        sessionId: sessionId,
+                        isPlaying: !audioPlayer.paused && !!audioPlayer.src,
+                        currentTime: Math.floor(audioPlayer.currentTime || 0),
+                        totalDuration: Math.floor(audioPlayer.duration || 0),
+                        volume: audioPlayer.volume || 1.0,
+                        isMuted: isMuted,
+                        isShuffled: isShuffled,
+                        repeatMode: repeatMode
+                    };
+                    
+                    // Include track ID if we have one
+                    if (currentTrackId !== null) {
+                        state.trackId = currentTrackId;
+                    }
+                    
+                    console.log('Sending session Discord RPC update:', state);
+                    
+                    const response = await fetch('/api/sessions/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(state)
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        isActiveSession = data.isActive;
+                        updateSessionStatus();
+                    } else {
+                        console.error('Session Discord RPC update failed:', response.status, response.statusText);
+                    }
+                } catch (error) {
+                    console.error('Failed to update session Discord RPC:', error);
+                }
+            }, 500); // Wait 500ms before sending update
+        }
+
         // Initialize the app
         async function init() {
+            // Create session first
+            await createSession();
+            
             await loadTracks();
             await loadPlaylists();
             startTrackCountMonitoring();
             setupKeyboardShortcuts();
+            
+            // Start checking session status periodically
+            setInterval(checkSessionStatus, 10000); // Check every 10 seconds
         }
         
         // Setup keyboard shortcuts
@@ -1435,6 +1591,7 @@
                     audioPlayer.pause();
                     icon.className = 'nf nf-md-play';
                 }
+                updateDiscordRPC(); // Update Discord RPC on play/pause
             }
         }
         
@@ -1450,6 +1607,7 @@
                 shuffleBtn.classList.remove('active');
                 shuffleBtn.title = 'Shuffle Off';
             }
+            updateDiscordRPC(); // Update Discord RPC when shuffle changes
         }
         
         // Toggle repeat mode (off -> playlist -> track -> off)
@@ -1475,6 +1633,7 @@
                     repeatBtn.title = 'Repeat Track';
                     break;
             }
+            updateDiscordRPC(); // Update Discord RPC when repeat changes
         }
         
         // Toggle mute
@@ -1496,6 +1655,7 @@
                 icon.className = 'nf nf-md-volume_off';
                 isMuted = true;
             }
+            updateDiscordRPC(); // Update Discord RPC when volume changes
         }
         
         // Set volume from slider click
@@ -1521,6 +1681,7 @@
                 isMuted = false;
                 lastVolume = volume;
             }
+            updateDiscordRPC(); // Update Discord RPC when volume changes
         }
         
         // Seek to position in track
@@ -1555,6 +1716,11 @@
                 progressFill.style.width = percentage + '%';
                 currentTimeSpan.textContent = formatTime(audioPlayer.currentTime);
                 totalTimeSpan.textContent = formatTime(audioPlayer.duration);
+                
+                // Update Discord RPC periodically (every 10 seconds) to sync progress
+                if (Math.floor(audioPlayer.currentTime) % 10 === 0) {
+                    updateDiscordRPC();
+                }
             }
         }
         
@@ -1746,7 +1912,7 @@
         }
         
         // Play a track
-        function playTrack(trackId, title, artist, trackIndex = -1) {
+        async function playTrack(trackId, title, artist, trackIndex = -1) {
             const player = document.getElementById('player');
             const audioPlayer = document.getElementById('audioPlayer');
             const nowPlayingTitle = document.getElementById('nowPlayingTitle');
@@ -1766,8 +1932,9 @@
                 }
             }
             
-            // Set current track index
+            // Set current track index and ID
             currentTrackIndex = trackIndex;
+            currentTrackId = trackId;
             
             audioPlayer.src = `/stream/${trackId}`;
             nowPlayingTitle.textContent = title.toUpperCase();
@@ -1784,9 +1951,20 @@
             audioPlayer.addEventListener('timeupdate', updateProgress);
             audioPlayer.addEventListener('loadedmetadata', updateProgress);
             
+            // Notify backend about track play
+            try {
+                await fetch(`/api/player/play/${trackId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (error) {
+                console.error('Failed to notify backend about track play:', error);
+            }
+            
             audioPlayer.play().then(() => {
                 const icon = playPauseBtn.querySelector('i');
                 icon.className = 'nf nf-md-pause';
+                updateDiscordRPC(); // Update Discord RPC when track starts
             }).catch(error => {
                 console.error('Error playing track:', error);
                 const icon = playPauseBtn.querySelector('i');
@@ -1797,6 +1975,13 @@
             if (window.innerWidth <= 768) {
                 document.getElementById('sidebar').classList.remove('open');
             }
+        }
+        
+        // Clear current track info (when stopping playback)
+        function clearCurrentTrack() {
+            currentTrackId = null;
+            currentTrackIndex = -1;
+            updateDiscordRPC(); // Update Discord to show idle state
         }
         
         // Handle track ended - play next track automatically

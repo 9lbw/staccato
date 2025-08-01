@@ -16,6 +16,7 @@ type Config struct {
 	Logging    LoggingConfig    `toml:"logging"`
 	Downloader DownloaderConfig `toml:"downloader"`
 	Ngrok      NgrokConfig      `toml:"ngrok"`
+	Discord    DiscordConfig    `toml:"discord"`
 }
 
 // ServerConfig contains server-related configuration
@@ -68,6 +69,14 @@ type NgrokConfig struct {
 	AuthProvider string `toml:"auth_provider"`
 }
 
+// DiscordConfig contains Discord Rich Presence configuration
+type DiscordConfig struct {
+	Enabled       bool   `toml:"enabled"`
+	ApplicationID string `toml:"application_id"`
+	LargeImageKey string `toml:"large_image_key"`
+	SmallImageKey string `toml:"small_image_key"`
+}
+
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
@@ -79,7 +88,7 @@ func DefaultConfig() *Config {
 			ReadTimeout: 30,
 		},
 		Database: DatabaseConfig{
-			Path:           "./spotigo.db",
+			Path:           "./staccato.db",
 			MaxConnections: 10,
 		},
 		Music: MusicConfig{
@@ -108,6 +117,12 @@ func DefaultConfig() *Config {
 			Region:       "us",
 			EnableAuth:   false,
 			AuthProvider: "google",
+		},
+		Discord: DiscordConfig{
+			Enabled:       false,
+			ApplicationID: "1400564318365552771", // This should be replaced with your actual Discord app ID
+			LargeImageKey: "staccato_logo",
+			SmallImageKey: "music_note",
 		},
 	}
 }
@@ -156,8 +171,8 @@ func (c *Config) SaveToFile(configPath string) error {
 	defer file.Close()
 
 	// Write header comment
-	header := `# Spotigo Music Server Configuration
-# This file contains all configuration options for the Spotigo music streaming server.
+	header := `# Staccato Music Server Configuration
+# This file contains all configuration options for the Staccato music streaming server.
 # Edit the values below to customize your server settings.
 
 `

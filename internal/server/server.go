@@ -10,23 +10,29 @@ import (
 	"strings"
 	"time"
 
-	"spotigo/internal/config"
-	"spotigo/internal/database"
-	"spotigo/internal/downloader"
-	"spotigo/internal/metadata"
-	"spotigo/internal/ngrok"
+	"staccato/internal/config"
+	"staccato/internal/database"
+	"staccato/internal/discord"
+	"staccato/internal/downloader"
+	"staccato/internal/metadata"
+	"staccato/internal/ngrok"
+	"staccato/internal/player"
+	"staccato/internal/session"
 
 	"github.com/fsnotify/fsnotify"
 )
 
 // MusicServer represents the main music streaming server
 type MusicServer struct {
-	db           *database.Database
-	config       *config.Config
-	watcher      *fsnotify.Watcher
-	extractor    *metadata.Extractor
-	downloader   *downloader.Downloader
-	ngrokService *ngrok.Service
+	db             *database.Database
+	config         *config.Config
+	watcher        *fsnotify.Watcher
+	extractor      *metadata.Extractor
+	downloader     *downloader.Downloader
+	ngrokService   *ngrok.Service
+	discordRPC     *discord.RPCService
+	playerState    *player.StateManager
+	sessionManager *session.SessionManager
 }
 
 // NewMusicServer creates a new music server instance
@@ -45,13 +51,37 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		ngrokSvc = nil
 	}
 
-	return &MusicServer{
-		db:           db,
-		config:       cfg,
-		extractor:    metadata.NewExtractor(cfg.Music.SupportedFormats),
-		downloader:   dl,
-		ngrokService: ngrokSvc,
-	}, nil
+	// Create Discord RPC service
+	discordRPC := discord.NewRPCService(&cfg.Discord)
+
+	// Create player state manager
+	playerState := player.NewStateManager()
+
+	// Create session manager
+	sessionManager := session.NewSessionManager()
+
+	server := &MusicServer{
+		db:             db,
+		config:         cfg,
+		extractor:      metadata.NewExtractor(cfg.Music.SupportedFormats),
+		downloader:     dl,
+		ngrokService:   ngrokSvc,
+		discordRPC:     discordRPC,
+		playerState:    playerState,
+		sessionManager: sessionManager,
+	}
+
+	// Start Discord RPC service if enabled
+	if cfg.Discord.Enabled {
+		if err := discordRPC.Connect(); err != nil {
+			log.Printf("Warning: Failed to connect to Discord RPC: %v", err)
+		}
+	}
+
+	// Start Discord RPC state listener
+	server.startDiscordStateListener()
+
+	return server, nil
 }
 
 // ScanMusicLibrary scans the music directory and adds tracks to the database
@@ -95,6 +125,38 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 	return err
 }
 
+// startDiscordStateListener starts listening for player state changes to update Discord RPC
+func (ms *MusicServer) startDiscordStateListener() {
+	if !ms.config.Discord.Enabled {
+		return
+	}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
+		defer ticker.Stop()
+
+		for range ticker.C {
+			activeSession := ms.sessionManager.GetActiveSession()
+			if activeSession != nil && activeSession.Track != nil {
+				err := ms.discordRPC.UpdateNowPlaying(
+					activeSession.Track,
+					activeSession.IsPlaying,
+					activeSession.CurrentTime,
+					activeSession.Track.Duration,
+				)
+				if err != nil {
+					log.Printf("Failed to update Discord RPC: %v", err)
+				}
+			} else {
+				err := ms.discordRPC.SetIdle()
+				if err != nil {
+					log.Printf("Failed to set Discord RPC idle: %v", err)
+				}
+			}
+		}
+	}()
+}
+
 // Start starts the music server
 func (ms *MusicServer) Start() {
 	// Start file watcher if enabled
@@ -118,7 +180,7 @@ func (ms *MusicServer) Start() {
 
 	localAddress := fmt.Sprintf("http://%s", ms.config.GetAddress())
 
-	log.Printf("🎵 Spotigo server starting on port %s", ms.config.Server.Port)
+	log.Printf("🎵 Staccato server starting on port %s", ms.config.Server.Port)
 	log.Printf("📁 Music library contains %d tracks", trackCount)
 	if ms.config.Music.WatchForChanges {
 		log.Printf("🔍 File watcher monitoring: %s", ms.config.Music.LibraryPath)
@@ -153,6 +215,17 @@ func (ms *MusicServer) setupRoutes() {
 	http.HandleFunc("/api/tracks/count", ms.handleGetTrackCount)
 	http.HandleFunc("/stream/", ms.handleStreamTrack)
 
+	// Player state routes
+	http.HandleFunc("/api/player/state", ms.handleGetPlayerState)
+	http.HandleFunc("/api/player/update", ms.handleUpdatePlayerState)
+	http.HandleFunc("/api/player/play/", ms.handleTrackPlay)
+
+	// Session management routes
+	http.HandleFunc("/api/sessions/create", ms.handleCreateSession)
+	http.HandleFunc("/api/sessions", ms.handleGetSessions)
+	http.HandleFunc("/api/sessions/active", ms.handleSetActiveSession)
+	http.HandleFunc("/api/sessions/update", ms.handleUpdatePlayerStateSession)
+
 	// Download routes
 	http.HandleFunc("/api/download", ms.handleDownloadMusic)
 	http.HandleFunc("/api/downloads", ms.handleGetDownloads)
@@ -176,4 +249,19 @@ func (ms *MusicServer) setupRoutes() {
 			ms.handleDeletePlaylist(w, r)
 		}
 	})
+}
+
+// Shutdown gracefully shuts down the music server
+func (ms *MusicServer) Shutdown() {
+	log.Println("🔌 Shutting down music server...")
+
+	// Disconnect Discord RPC
+	if ms.discordRPC != nil {
+		ms.discordRPC.Disconnect()
+	}
+
+	// Stop file watcher
+	ms.stopFileWatcher()
+
+	log.Println("✅ Music server shutdown complete")
 }

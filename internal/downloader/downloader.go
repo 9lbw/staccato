@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"spotigo/internal/config"
+	"staccato/internal/config"
 
 	"github.com/google/uuid"
 )

@@ -20,8 +20,8 @@ go.work
 # Build artifacts
 bin/
 dist/
-/spotigo
-spotigo-*
+/staccato
+staccato-*
 
 # IDEs and editors
 .vscode/

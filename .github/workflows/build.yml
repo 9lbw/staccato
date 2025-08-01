@@ -103,45 +103,47 @@ jobs:
         GOARCH: ${{ matrix.arch }}
         CGO_ENABLED: ${{ matrix.cgo_enabled }}
       run: |
-        go build -v -ldflags="-s -w" -o spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} ./cmd/spotigo
+        go build -v -ldflags="-s -w" -o staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} ./cmd/staccato
 
     - name: Create release archive (Windows)
       if: matrix.os == 'windows'
       run: |
         mkdir release
-        cp spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
+        cp staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
         if (Test-Path "config.example.toml") { cp config.example.toml release/config.toml }
         if (Test-Path "README.md") { cp README.md release/ }
         if (Test-Path "INSTALL_YTDLP.md") { cp INSTALL_YTDLP.md release/ }
         if (Test-Path "NGROK_SETUP.md") { cp NGROK_SETUP.md release/ }
+        if (Test-Path "DISCORD_SETUP.md") { cp DISCORD_SETUP.md release/ }
 
     - name: Create release archive (Unix)
       if: matrix.os != 'windows'
       run: |
         mkdir -p release
-        cp spotigo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
+        cp staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
         if [ -f "config.example.toml" ]; then cp config.example.toml release/config.toml; fi
         if [ -f "README.md" ]; then cp README.md release/; fi
         if [ -f "INSTALL_YTDLP.md" ]; then cp INSTALL_YTDLP.md release/; fi
         if [ -f "NGROK_SETUP.md" ]; then cp NGROK_SETUP.md release/; fi
+        if [ -f "DISCORD_SETUP.md" ]; then cp DISCORD_SETUP.md release/; fi
 
     - name: Create ZIP archive (Windows)
       if: matrix.os == 'windows'
       run: |
-        Compress-Archive -Path release/* -DestinationPath spotigo-${{ matrix.os }}-${{ matrix.arch }}.zip
+        Compress-Archive -Path release/* -DestinationPath staccato-${{ matrix.os }}-${{ matrix.arch }}.zip
 
     - name: Create TAR archive (Unix)
       if: matrix.os != 'windows'
       run: |
-        tar -czf spotigo-${{ matrix.os }}-${{ matrix.arch }}.tar.gz -C release .
+        tar -czf staccato-${{ matrix.os }}-${{ matrix.arch }}.tar.gz -C release .
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: spotigo-${{ matrix.os }}-${{ matrix.arch }}
+        name: staccato-${{ matrix.os }}-${{ matrix.arch }}
         path: |
-          spotigo-${{ matrix.os }}-${{ matrix.arch }}.zip
-          spotigo-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+          staccato-${{ matrix.os }}-${{ matrix.arch }}.zip
+          staccato-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
         retention-days: 30
 
   release:

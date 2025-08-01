@@ -3,10 +3,12 @@ package main
 import (
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"spotigo/internal/config"
-	"spotigo/internal/database"
-	"spotigo/internal/server"
+	"staccato/internal/config"
+	"staccato/internal/database"
+	"staccato/internal/server"
 )
 
 func main() {
@@ -54,4 +56,12 @@ func main() {
 
 	// Start the server
 	musicServer.Start()
+
+	// Handle graceful shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
+
+	log.Println("🛑 Received shutdown signal")
+	musicServer.Shutdown()
 }
