@@ -13,8 +13,6 @@ A self-hosted music streaming server built with Go and vanilla JavaScript. Strea
 - Audio controls: play, pause, skip, shuffle, repeat, and volume
 
 ## Quick Start
-
-## Quick Start
 1. Download the latest release from the [releases page](https://github.com/9lbw/musicserver/releases)
 2. Extract the archive
 3. Create a `music` folder and add your music files
@@ -57,11 +55,6 @@ Access your server remotely using ngrok:
 - Arrow Right / N - Next track
 - Arrow Left / P - Previous track
 
-## Performance
-- Lightweight Go backend
-- Efficient audio streaming with range request support
-- SQLite database for metadata queries
-- Real-time file system monitoring
 
 ## Development
 ```bash

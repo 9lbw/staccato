@@ -26,7 +26,6 @@ yt_dlp_path = "yt-dlp"
 max_concurrent_downloads = 2
 audio_format = "mp3"
 audio_quality = "0"
-allowed_domains = ["youtube.com", "youtu.be", "soundcloud.com"]
 
 [ngrok]
 enabled = false

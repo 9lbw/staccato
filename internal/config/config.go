@@ -50,12 +50,11 @@ type LoggingConfig struct {
 
 // DownloaderConfig contains music download configuration
 type DownloaderConfig struct {
-	Enabled        bool     `toml:"enabled"`
-	YtDlpPath      string   `toml:"yt_dlp_path"`
-	MaxConcurrent  int      `toml:"max_concurrent_downloads"`
-	AudioFormat    string   `toml:"audio_format"`
-	AudioQuality   string   `toml:"audio_quality"`
-	AllowedDomains []string `toml:"allowed_domains"`
+	Enabled       bool   `toml:"enabled"`
+	YtDlpPath     string `toml:"yt_dlp_path"`
+	MaxConcurrent int    `toml:"max_concurrent_downloads"`
+	AudioFormat   string `toml:"audio_format"`
+	AudioQuality  string `toml:"audio_quality"`
 }
 
 // NgrokConfig contains ngrok tunnel configuration
@@ -94,12 +93,11 @@ func DefaultConfig() *Config {
 			File:   "",
 		},
 		Downloader: DownloaderConfig{
-			Enabled:        true,
-			YtDlpPath:      "yt-dlp",
-			MaxConcurrent:  2,
-			AudioFormat:    "mp3",
-			AudioQuality:   "0",
-			AllowedDomains: []string{"youtube.com", "youtu.be", "soundcloud.com"},
+			Enabled:       true,
+			YtDlpPath:     "yt-dlp",
+			MaxConcurrent: 2,
+			AudioFormat:   "mp3",
+			AudioQuality:  "0",
 		},
 		Ngrok: NgrokConfig{
 			Enabled:      false,
