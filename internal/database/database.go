@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"time"
 
 	"staccato/pkg/models"
 
@@ -13,10 +14,21 @@ type Database struct {
 }
 
 func NewDatabase(dbPath string) (*Database, error) {
-	conn, err := sql.Open("sqlite3", dbPath)
+	conn, err := sql.Open("sqlite3", dbPath+"?cache=shared&mode=rwc")
 	if err != nil {
 		return nil, err
 	}
+
+	// Configure connection pool
+	conn.SetMaxOpenConns(25)
+	conn.SetMaxIdleConns(5)
+	conn.SetConnMaxLifetime(5 * time.Minute)
+
+	// Enable WAL mode for better concurrency
+	conn.Exec("PRAGMA journal_mode=WAL;")
+	conn.Exec("PRAGMA synchronous=NORMAL;")
+	conn.Exec("PRAGMA cache_size=1000;")
+	conn.Exec("PRAGMA temp_store=memory;")
 
 	db := &Database{conn: conn}
 	if err := db.createTables(); err != nil {
@@ -38,6 +50,8 @@ func (db *Database) createTables() error {
 		duration INTEGER DEFAULT 0,
 		file_path TEXT NOT NULL UNIQUE,
 		file_size INTEGER NOT NULL,
+		has_album_art BOOLEAN DEFAULT FALSE,
+		album_art_id TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -93,17 +107,17 @@ func (db *Database) InsertTrack(track models.Track) (int, error) {
 	if err == nil {
 		// Track exists, update it
 		_, err = db.conn.Exec(`
-			UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?
+			UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?, has_album_art = ?, album_art_id = ?
 			WHERE id = ?`,
-			track.Title, track.Artist, track.Album, track.TrackNumber, track.Duration, track.FileSize, existingID)
+			track.Title, track.Artist, track.Album, track.TrackNumber, track.Duration, track.FileSize, track.HasAlbumArt, track.AlbumArtID, existingID)
 		return existingID, err
 	}
 
 	// Insert new track
 	result, err := db.conn.Exec(`
-		INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		track.Title, track.Artist, track.Album, track.TrackNumber, track.Duration, track.FilePath, track.FileSize)
+		INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		track.Title, track.Artist, track.Album, track.TrackNumber, track.Duration, track.FilePath, track.FileSize, track.HasAlbumArt, track.AlbumArtID)
 
 	if err != nil {
 		return 0, err
@@ -115,7 +129,7 @@ func (db *Database) InsertTrack(track models.Track) (int, error) {
 
 func (db *Database) GetAllTracks() ([]models.Track, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
 		FROM tracks
 		ORDER BY artist, album, track_number, title`)
 
@@ -127,10 +141,14 @@ func (db *Database) GetAllTracks() ([]models.Track, error) {
 	var tracks []models.Track
 	for rows.Next() {
 		var track models.Track
+		var albumArtID sql.NullString
 		err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
-			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize)
+			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID)
 		if err != nil {
 			return nil, err
+		}
+		if albumArtID.Valid {
+			track.AlbumArtID = albumArtID.String
 		}
 		tracks = append(tracks, track)
 	}
@@ -140,7 +158,7 @@ func (db *Database) GetAllTracks() ([]models.Track, error) {
 
 func (db *Database) GetTracksSortedByAlbum() ([]models.Track, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
 		FROM tracks
 		ORDER BY album, track_number, title`)
 
@@ -152,10 +170,14 @@ func (db *Database) GetTracksSortedByAlbum() ([]models.Track, error) {
 	var tracks []models.Track
 	for rows.Next() {
 		var track models.Track
+		var albumArtID sql.NullString
 		err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
-			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize)
+			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID)
 		if err != nil {
 			return nil, err
+		}
+		if albumArtID.Valid {
+			track.AlbumArtID = albumArtID.String
 		}
 		tracks = append(tracks, track)
 	}
@@ -165,14 +187,18 @@ func (db *Database) GetTracksSortedByAlbum() ([]models.Track, error) {
 
 func (db *Database) GetTrackByID(id int) (*models.Track, error) {
 	var track models.Track
+	var albumArtID sql.NullString
 	err := db.conn.QueryRow(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
 		FROM tracks WHERE id = ?`, id).Scan(
 		&track.ID, &track.Title, &track.Artist, &track.Album,
-		&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize)
+		&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID)
 
 	if err != nil {
 		return nil, err
+	}
+	if albumArtID.Valid {
+		track.AlbumArtID = albumArtID.String
 	}
 	return &track, nil
 }
@@ -220,7 +246,7 @@ func (db *Database) GetAllPlaylists() ([]models.Playlist, error) {
 
 func (db *Database) GetPlaylistTracks(playlistID int) ([]models.Track, error) {
 	rows, err := db.conn.Query(`
-		SELECT t.id, t.title, t.artist, t.album, t.track_number, t.duration, t.file_path, t.file_size
+		SELECT t.id, t.title, t.artist, t.album, t.track_number, t.duration, t.file_path, t.file_size, t.has_album_art, t.album_art_id
 		FROM tracks t
 		JOIN playlist_tracks pt ON t.id = pt.track_id
 		WHERE pt.playlist_id = ?
@@ -234,10 +260,14 @@ func (db *Database) GetPlaylistTracks(playlistID int) ([]models.Track, error) {
 	var tracks []models.Track
 	for rows.Next() {
 		var track models.Track
+		var albumArtID sql.NullString
 		err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
-			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize)
+			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID)
 		if err != nil {
 			return nil, err
+		}
+		if albumArtID.Valid {
+			track.AlbumArtID = albumArtID.String
 		}
 		tracks = append(tracks, track)
 	}
@@ -287,7 +317,7 @@ func (db *Database) DeletePlaylist(playlistID int) error {
 func (db *Database) SearchTracks(query string) ([]models.Track, error) {
 	searchQuery := "%" + query + "%"
 	rows, err := db.conn.Query(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
 		FROM tracks
 		WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
 		ORDER BY artist, album, track_number, title`,
@@ -301,10 +331,14 @@ func (db *Database) SearchTracks(query string) ([]models.Track, error) {
 	var tracks []models.Track
 	for rows.Next() {
 		var track models.Track
+		var albumArtID sql.NullString
 		err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
-			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize)
+			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID)
 		if err != nil {
 			return nil, err
+		}
+		if albumArtID.Valid {
+			track.AlbumArtID = albumArtID.String
 		}
 		tracks = append(tracks, track)
 	}

@@ -8,17 +8,12 @@ let lastTrackCount = 0;
 let currentTrackList = []; // Stores the current list of tracks being played
 let currentTrackIndex = -1; // Index of currently playing track in the list
 let currentTrackId = null; // ID of currently playing track
-let sessionId = null; // Current session ID
-let isActiveSession = false; // Whether this is the active session
 
 // Player state variables
 let isShuffled = false;
 let repeatMode = 0; // 0 = off, 1 = playlist, 2 = track
 let isMuted = false;
 let lastVolume = 1;
-
-// Discord RPC integration
-let discordUpdateTimeout;
 
 // Mobile sidebar toggle
 function toggleSidebar() {
@@ -49,18 +44,9 @@ window.addEventListener('resize', function() {
 
 // Initialize the app
 async function init() {
-    // Create session first
-    await createSession();
-    
     await loadTracks();
     await loadPlaylists();
     setupKeyboardShortcuts();
-    
-    // Start checking session status periodically
-    setInterval(checkSessionStatus, 10000); // Check every 10 seconds
-    
-    // Start real-time session event stream instead of polling
-    startSessionEventStream();
 }
 
 // Show notification

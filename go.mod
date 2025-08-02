@@ -7,9 +7,10 @@ require (
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
-	github.com/hugolgst/rich-go v0.0.0-20240715122152-74618cc1ace2
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.29
+	github.com/sirupsen/logrus v1.9.3
+	github.com/tcolgate/mp3 v0.0.0-20170426193717-e79c5a46d300
 	golang.ngrok.com/ngrok/v2 v2.0.0
 )
 
@@ -26,5 +27,4 @@ require (
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/term v0.25.0 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
-	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 )

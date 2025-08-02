@@ -12,6 +12,8 @@ type Track struct {
 	Duration    int    `json:"duration"` // in seconds
 	FilePath    string `json:"-"`        // don't expose file path to client
 	FileSize    int64  `json:"fileSize"`
+	HasAlbumArt bool   `json:"hasAlbumArt"`
+	AlbumArtID  string `json:"albumArtId,omitempty"` // For caching album art
 }
 
 // Playlist represents a user-created playlist

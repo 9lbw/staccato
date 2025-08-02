@@ -16,8 +16,6 @@ type Config struct {
 	Logging    LoggingConfig    `toml:"logging"`
 	Downloader DownloaderConfig `toml:"downloader"`
 	Ngrok      NgrokConfig      `toml:"ngrok"`
-	Discord    DiscordConfig    `toml:"discord"`
-	Session    SessionConfig    `toml:"session"`
 }
 
 // ServerConfig contains server-related configuration
@@ -70,21 +68,6 @@ type NgrokConfig struct {
 	AuthProvider string `toml:"auth_provider"`
 }
 
-// DiscordConfig contains Discord Rich Presence configuration
-type DiscordConfig struct {
-	Enabled       bool   `toml:"enabled"`
-	ApplicationID string `toml:"application_id"`
-	LargeImageKey string `toml:"large_image_key"`
-	SmallImageKey string `toml:"small_image_key"`
-}
-
-// SessionConfig contains session management configuration
-type SessionConfig struct {
-	PriorityMode    string `toml:"priority_mode"`    // "play", "session", or "session_play"
-	ActivityTimeout int    `toml:"activity_timeout"` // Session timeout in seconds
-	DiscordRPCMode  string `toml:"discord_rpc_mode"` // "active_only", "all_sessions", or "background_aware"
-}
-
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
@@ -125,17 +108,6 @@ func DefaultConfig() *Config {
 			Region:       "us",
 			EnableAuth:   false,
 			AuthProvider: "google",
-		},
-		Discord: DiscordConfig{
-			Enabled:       false,
-			ApplicationID: "1400564318365552771", // This should be replaced with your actual Discord app ID
-			LargeImageKey: "staccato_logo",
-			SmallImageKey: "music_note",
-		},
-		Session: SessionConfig{
-			PriorityMode:    "session",     // Default to current behavior
-			ActivityTimeout: 30,            // 30 seconds timeout
-			DiscordRPCMode:  "active_only", // Only show active session in Discord
 		},
 	}
 }

@@ -87,6 +87,9 @@ function displayTracks(tracksToShow = tracks) {
     
     tracksContainer.innerHTML = tracksToShow.map(track => `
         <div class="track-item${currentTrackId === track.id ? ' playing' : ''}" onclick="playTrack(${track.id})">
+            ${track.hasAlbumArt ? `<div class="album-art">
+                <img src="/albumart/${track.albumArtId}" alt="Album Art" onerror="this.parentElement.style.display='none'">
+            </div>` : ''}
             <div class="track-info">
                 <div class="track-title">${escapeHtml(track.title)}</div>
                 <div class="track-artist">${escapeHtml(track.artist)}</div>
@@ -237,10 +240,7 @@ async function playTrack(trackId) {
             audioPlayer.addEventListener('loadeddata', function onLoaded() {
                 audioPlayer.removeEventListener('loadeddata', onLoaded);
                 audioPlayer.play().then(() => {
-                    console.log('Audio started playing, updating session state');
-                    
-                    // Update Discord RPC with session info after playback starts
-                    updateDiscordRPC();
+                    console.log('Audio started playing');
                 }).catch(error => {
                     console.error('Error playing audio:', error);
                 });

@@ -9,37 +9,10 @@ A self-hosted music streaming server built with Go and vanilla JavaScript. Strea
 - Search and sort by title, artist, or album
 - Download integration with yt-dlp
 - Ngrok integration for remote access
-- Discord Rich Presence
-- Advanced Session Management with 3 Priority Modes
 - Automatic music library scanning
 - Audio controls: play, pause, skip, shuffle, repeat, and volume
 
-## Session Management
-Staccato supports multiple clients (devices) connected simultaneously with intelligent session priority handling:
-
-### Priority Modes
-1. **Play Priority** (`priority_mode = "play"`)
-   - Works like Spotify: when one device starts playing, it pauses all others
-   - Perfect for preventing music conflicts between devices
-   - Discord RPC shows the currently playing device
-
-2. **Session Priority** (`priority_mode = "session"`) - *Default*
-   - Most recent session controls Discord RPC
-   - All devices can play simultaneously
-   - Original behavior preserved
-
-3. **Session + Play Priority** (`priority_mode = "session_play"`)
-   - Best of both worlds: new playing device gets Discord RPC priority
-   - Other devices continue playing in background
-   - Useful for having music in multiple rooms
-
-### Configuration
-```toml
-[session]
-priority_mode = "play"          # "play", "session", or "session_play"
-activity_timeout = 30           # Session timeout in seconds
-discord_rpc_mode = "active_only" # Discord integration mode
-```
+## Quick Start
 
 ## Quick Start
 1. Download the latest release from the [releases page](https://github.com/9lbw/musicserver/releases)
@@ -60,13 +33,7 @@ host = "0.0.0.0"
 library_path = "./music"
 scan_on_startup = true
 watch_for_changes = true
-[discord]
-enabled = false
-application_id = "your_discord_app_id"
 ```
-
-## Discord Rich Presence
-Display your currently playing music in Discord. See [config.example.toml](config.example.toml) for configuration.
 
 ## Music Downloads
 Download music from YouTube and other sites using yt-dlp:

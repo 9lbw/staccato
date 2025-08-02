@@ -35,30 +35,3 @@ domain = ""
 region = "us"
 enable_auth = false
 auth_provider = "google"
-
-# Discord Rich Presence Configuration
-[discord]
-enabled = false
-# You need to create a Discord application at https://discord.com/developers/applications
-# and replace this with your actual Application ID
-application_id = "1234567890123456789"
-# These are image keys you can upload to your Discord application
-large_image_key = "staccato_logo"
-small_image_key = "music_note"
-
-# Session Management Configuration
-[session]
-# Priority mode determines how multiple client sessions are handled:
-# "play" - Play Priority: Client that clicks play gets priority, pausing others (like Spotify)
-# "session" - Session Priority: Most recent session controls Discord RPC (current behavior)
-# "session_play" - Session + Play Priority: Mix of both, background sessions continue playing
-priority_mode = "session"
-
-# How long before a session is considered inactive (in seconds)
-activity_timeout = 30
-
-# Discord RPC mode:
-# "active_only" - Only show the active session in Discord
-# "all_sessions" - Show all sessions (future feature)
-# "background_aware" - Show active session but track background sessions (future feature)
-discord_rpc_mode = "active_only"

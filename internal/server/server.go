@@ -12,27 +12,23 @@ import (
 
 	"staccato/internal/config"
 	"staccato/internal/database"
-	"staccato/internal/discord"
 	"staccato/internal/downloader"
 	"staccato/internal/metadata"
 	"staccato/internal/ngrok"
 	"staccato/internal/player"
-	"staccato/internal/session"
 
 	"github.com/fsnotify/fsnotify"
 )
 
 // MusicServer represents the main music streaming server
 type MusicServer struct {
-	db             *database.Database
-	config         *config.Config
-	watcher        *fsnotify.Watcher
-	extractor      *metadata.Extractor
-	downloader     *downloader.Downloader
-	ngrokService   *ngrok.Service
-	discordRPC     *discord.RPCService
-	playerState    *player.StateManager
-	sessionManager *session.SessionManager
+	db           *database.Database
+	config       *config.Config
+	watcher      *fsnotify.Watcher
+	extractor    *metadata.Extractor
+	downloader   *downloader.Downloader
+	ngrokService *ngrok.Service
+	playerState  *player.StateManager
 }
 
 // NewMusicServer creates a new music server instance
@@ -51,53 +47,17 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		ngrokSvc = nil
 	}
 
-	// Create Discord RPC service
-	discordRPC := discord.NewRPCService(&cfg.Discord)
-
 	// Create player state manager
 	playerState := player.NewStateManager()
 
-	// Create session manager with configured priority mode
-	var priorityMode session.PriorityMode
-	var modeStr string
-	switch cfg.Session.PriorityMode {
-	case "play":
-		priorityMode = session.PlayPriority
-		modeStr = "Play Priority (Spotify-like behavior)"
-	case "session_play":
-		priorityMode = session.SessionPlayPriority
-		modeStr = "Session + Play Priority (Background playback)"
-	default:
-		priorityMode = session.SessionPriority
-		modeStr = "Session Priority (Original behavior)"
-	}
-
-	log.Printf("Session management mode: %s", modeStr)
-	sessionManager := session.NewSessionManagerWithMode(priorityMode)
-
 	server := &MusicServer{
-		db:             db,
-		config:         cfg,
-		extractor:      metadata.NewExtractor(cfg.Music.SupportedFormats),
-		downloader:     dl,
-		ngrokService:   ngrokSvc,
-		discordRPC:     discordRPC,
-		playerState:    playerState,
-		sessionManager: sessionManager,
+		db:           db,
+		config:       cfg,
+		extractor:    metadata.NewExtractor(cfg.Music.SupportedFormats),
+		downloader:   dl,
+		ngrokService: ngrokSvc,
+		playerState:  playerState,
 	}
-
-	// Set up session change callback for Discord RPC updates
-	sessionManager.SetSessionChangeCallback(server.handleSessionChange)
-
-	// Start Discord RPC service if enabled
-	if cfg.Discord.Enabled {
-		if err := discordRPC.Connect(); err != nil {
-			log.Printf("Warning: Failed to connect to Discord RPC: %v", err)
-		}
-	}
-
-	// Start Discord RPC state listener
-	server.startDiscordStateListener()
 
 	return server, nil
 }
@@ -141,38 +101,6 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 
 	log.Printf("Scanned %d tracks", trackCount)
 	return err
-}
-
-// startDiscordStateListener starts listening for player state changes to update Discord RPC
-func (ms *MusicServer) startDiscordStateListener() {
-	if !ms.config.Discord.Enabled {
-		return
-	}
-
-	go func() {
-		ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
-		defer ticker.Stop()
-
-		for range ticker.C {
-			activeSession := ms.sessionManager.GetActiveSession()
-			if activeSession != nil && activeSession.Track != nil {
-				err := ms.discordRPC.UpdateNowPlaying(
-					activeSession.Track,
-					activeSession.IsPlaying,
-					activeSession.CurrentTime,
-					activeSession.Track.Duration,
-				)
-				if err != nil {
-					log.Printf("Failed to update Discord RPC: %v", err)
-				}
-			} else {
-				err := ms.discordRPC.SetIdle()
-				if err != nil {
-					log.Printf("Failed to set Discord RPC idle: %v", err)
-				}
-			}
-		}
-	}()
 }
 
 // Start starts the music server
@@ -232,20 +160,13 @@ func (ms *MusicServer) setupRoutes() {
 	http.HandleFunc("/api/tracks", ms.handleGetTracks)
 	http.HandleFunc("/api/tracks/count", ms.handleGetTrackCount)
 	http.HandleFunc("/stream/", ms.handleStreamTrack)
+	http.HandleFunc("/albumart/", ms.handleAlbumArt) // Album art endpoint
+	http.HandleFunc("/health", ms.handleHealthCheck) // Health check endpoint
 
 	// Player state routes
 	http.HandleFunc("/api/player/state", ms.handleGetPlayerState)
 	http.HandleFunc("/api/player/update", ms.handleUpdatePlayerState)
 	http.HandleFunc("/api/player/play/", ms.handleTrackPlay)
-
-	// Session management routes
-	http.HandleFunc("/api/sessions/create", ms.handleCreateSession)
-	http.HandleFunc("/api/sessions", ms.handleGetSessions)
-	http.HandleFunc("/api/sessions/active", ms.handleSetActiveSession)
-	http.HandleFunc("/api/sessions/update", ms.handleUpdatePlayerStateSession)
-	http.HandleFunc("/api/sessions/priority", ms.handleSessionPriority)
-	http.HandleFunc("/api/sessions/config", ms.handleSessionConfig)
-	http.HandleFunc("/api/sessions/stream", ms.handleSessionStream) // Server-Sent Events stream
 
 	// Download routes
 	http.HandleFunc("/api/download", ms.handleDownloadMusic)
@@ -277,63 +198,8 @@ func (ms *MusicServer) setupRoutes() {
 func (ms *MusicServer) Shutdown() {
 	log.Println("Shutting down music server...")
 
-	// Disconnect Discord RPC
-	if ms.discordRPC != nil {
-		ms.discordRPC.Disconnect()
-	}
-
 	// Stop file watcher
 	ms.stopFileWatcher()
 
 	log.Println("Music server shutdown complete")
-}
-
-// handleSessionChange handles session priority changes and updates Discord RPC accordingly
-func (ms *MusicServer) handleSessionChange(activeSession *session.PlayerSession, backgroundSessions []*session.PlayerSession) {
-	if !ms.config.Discord.Enabled || ms.discordRPC == nil {
-		return
-	}
-
-	// Update Discord RPC based on the active session
-	if activeSession != nil && activeSession.Track != nil && activeSession.IsPlaying {
-		// Update Discord with the active session's track
-		err := ms.discordRPC.UpdateNowPlaying(
-			activeSession.Track,
-			activeSession.IsPlaying,
-			activeSession.CurrentTime,
-			activeSession.Track.Duration,
-		)
-		if err != nil {
-			log.Printf("Failed to update Discord RPC: %v", err)
-		}
-	} else {
-		// No active session or not playing, set to idle
-		err := ms.discordRPC.SetIdle()
-		if err != nil {
-			log.Printf("Failed to set Discord RPC to idle: %v", err)
-		}
-	}
-
-	// Log session changes for debugging
-	if activeSession != nil {
-		log.Printf("Active session changed to: %s (%s) - %s",
-			activeSession.Session.ID,
-			activeSession.Session.DeviceName,
-			func() string {
-				if activeSession.Track != nil {
-					return activeSession.Track.Title
-				}
-				return "No track"
-			}())
-	} else {
-		log.Printf("No active session")
-	}
-
-	// Log background sessions
-	for _, bgSession := range backgroundSessions {
-		log.Printf("Background session: %s (%s) - Playing: %v",
-			bgSession.Session.ID,
-			bgSession.Session.DeviceName,
-			bgSession.IsPlaying)
-	}
 }

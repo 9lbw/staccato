@@ -41,7 +41,6 @@ function togglePlayPause() {
             audioPlayer.pause();
             icon.className = 'nf nf-md-play';
         }
-        updateDiscordRPC(); // Update Discord RPC on play/pause
     }
 }
 
@@ -57,7 +56,6 @@ function toggleShuffle() {
         shuffleBtn.classList.remove('active');
         shuffleBtn.title = 'Shuffle Off';
     }
-    updateDiscordRPC(); // Update Discord RPC when shuffle changes
 }
 
 // Toggle repeat mode (off -> playlist -> track -> off)
@@ -83,7 +81,6 @@ function toggleRepeat() {
             repeatBtn.title = 'Repeat Track';
             break;
     }
-    updateDiscordRPC(); // Update Discord RPC when repeat changes
 }
 
 // Set volume from slider click
@@ -115,7 +112,6 @@ function setVolume(event) {
     }
     
     lastVolume = percentage > 0 ? percentage : lastVolume;
-    updateDiscordRPC(); // Update Discord RPC when volume changes
 }
 
 // Toggle mute
@@ -137,7 +133,6 @@ function toggleMute() {
         icon.className = 'nf nf-md-volume_off';
         isMuted = true;
     }
-    updateDiscordRPC(); // Update Discord RPC when volume changes
 }
 
 // Set volume from slider click
@@ -163,7 +158,6 @@ function setVolume(event) {
         isMuted = false;
         lastVolume = volume;
     }
-    updateDiscordRPC(); // Update Discord RPC when volume changes
 }
 
 // Seek to position in track
@@ -198,11 +192,6 @@ function updateProgress() {
         progressFill.style.width = percentage + '%';
         currentTimeSpan.textContent = formatTime(audioPlayer.currentTime);
         totalTimeSpan.textContent = formatTime(audioPlayer.duration);
-        
-        // Update Discord RPC periodically (every 10 seconds) to sync progress
-        if (Math.floor(audioPlayer.currentTime) % 10 === 0) {
-            updateDiscordRPC();
-        }
     }
 }
 
@@ -219,7 +208,6 @@ function seekToPosition(event) {
         
         audioPlayer.currentTime = newTime;
         updateProgress();
-        updateDiscordRPC(); // Update RPC with new position
     }
 }
 
@@ -285,9 +273,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (audioPlayer) {
         audioPlayer.addEventListener('timeupdate', updateProgress);
         audioPlayer.addEventListener('loadedmetadata', updateProgress);
-        audioPlayer.addEventListener('play', () => updateDiscordRPC());
-        audioPlayer.addEventListener('pause', () => updateDiscordRPC());
-        audioPlayer.addEventListener('volumechange', () => updateDiscordRPC());
         
         // Handle track ending
         audioPlayer.addEventListener('ended', function() {
