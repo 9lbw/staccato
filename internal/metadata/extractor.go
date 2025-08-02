@@ -112,7 +112,7 @@ func (e *Extractor) ExtractFromFile(filePath string, id int) (models.Track, erro
 	trackNum, _ := metadata.Track()
 
 	// Extract album art
-	albumArtID, hasAlbumArt := e.extractAlbumArt(metadata, filePath)
+	albumArtID, hasAlbumArt := e.extractAlbumArt(metadata)
 
 	processingTime := time.Since(startTime)
 	e.logger.WithFields(logrus.Fields{
@@ -245,7 +245,7 @@ func (e *Extractor) estimateDurationFromSize(filePath string, estimatedBitrate i
 }
 
 // extractAlbumArt extracts album art from metadata or looks for cover files
-func (e *Extractor) extractAlbumArt(metadata tag.Metadata, filePath string) (string, bool) {
+func (e *Extractor) extractAlbumArt(metadata tag.Metadata) (string, bool) {
 	// First try to extract embedded album art
 	if metadata != nil {
 		if picture := metadata.Picture(); picture != nil {
