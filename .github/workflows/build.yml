@@ -106,23 +106,23 @@ jobs:
       if: matrix.os == 'windows'
       run: |
         mkdir release
-        cp staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
+        # Copy and rename binary to uniform name
+        cp staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/staccato${{ matrix.binary_suffix }}
+        # Include static web assets
+        Copy-Item -Path static -Destination release\static -Recurse
         if (Test-Path "config.example.toml") { cp config.example.toml release/config.toml }
-        if (Test-Path "README.md") { cp README.md release/ }
-        if (Test-Path "INSTALL_YTDLP.md") { cp INSTALL_YTDLP.md release/ }
-        if (Test-Path "NGROK_SETUP.md") { cp NGROK_SETUP.md release/ }
-        if (Test-Path "DISCORD_SETUP.md") { cp DISCORD_SETUP.md release/ }
-
+    
     - name: Create release archive (Unix)
       if: matrix.os != 'windows'
       run: |
         mkdir -p release
-        cp staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/
+        # Copy and rename binary to uniform name
+        cp staccato-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_suffix }} release/staccato${{ matrix.binary_suffix }}
+        chmod +x release/staccato${{ matrix.binary_suffix }}
+        # Include static web assets
+        cp -r static release/static
+        # Other assets
         if [ -f "config.example.toml" ]; then cp config.example.toml release/config.toml; fi
-        if [ -f "README.md" ]; then cp README.md release/; fi
-        if [ -f "INSTALL_YTDLP.md" ]; then cp INSTALL_YTDLP.md release/; fi
-        if [ -f "NGROK_SETUP.md" ]; then cp NGROK_SETUP.md release/; fi
-        if [ -f "DISCORD_SETUP.md" ]; then cp DISCORD_SETUP.md release/; fi
 
     - name: Create ZIP archive (Windows)
       if: matrix.os == 'windows'
