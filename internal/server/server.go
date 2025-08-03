@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"staccato/internal/config"
@@ -71,36 +74,51 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 
 	log.Printf("Scanning music library in: %s", ms.config.Music.LibraryPath)
 
-	trackCount := 0
-	err := filepath.Walk(ms.config.Music.LibraryPath, func(path string, info os.FileInfo, err error) error {
+	var wg sync.WaitGroup
+	var trackCount int64
+	jobs := make(chan string, 100)
+
+	// Start worker pool
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			for path := range jobs {
+				track, err := ms.extractor.ExtractFromFile(path, 0)
+				if err != nil {
+					log.Printf("Error extracting metadata from %s: %v", path, err)
+					wg.Done()
+					continue
+				}
+				_, err = ms.db.InsertTrack(track)
+				if err != nil {
+					log.Printf("Error inserting track into database: %v", err)
+				} else {
+					atomic.AddInt64(&trackCount, 1)
+					log.Printf("Added track: %s - %s", track.Artist, track.Title)
+				}
+				wg.Done()
+			}
+		}()
+	}
+
+	// Walk directory and enqueue jobs
+	walkErr := filepath.Walk(ms.config.Music.LibraryPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-
-		// Check if file is a supported audio format
 		if ms.extractor.IsAudioFile(path) {
-			track, err := ms.extractor.ExtractFromFile(path, 0) // ID will be set by database
-			if err != nil {
-				log.Printf("Error extracting metadata from %s: %v", path, err)
-				return nil // Continue scanning other files
-			}
-
-			// Insert track into database
-			id, err := ms.db.InsertTrack(track)
-			if err != nil {
-				log.Printf("Error inserting track into database: %v", err)
-				return nil
-			}
-
-			trackCount++
-			log.Printf("Added track: %s - %s (ID: %d)", track.Artist, track.Title, id)
+			wg.Add(1)
+			jobs <- path
 		}
-
 		return nil
 	})
 
+	// Close jobs channel and wait for all workers
+	close(jobs)
+	wg.Wait()
+
 	log.Printf("Scanned %d tracks", trackCount)
-	return err
+	return walkErr
 }
 
 // Start starts the music server
