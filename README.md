@@ -66,7 +66,7 @@ go build -o bin/staccato ./cmd/staccato
 ```
 
 ## License
-This project is available under the MIT License.
+This project is available under the GPLv3 License.
 
 ## Contributing
 Contributions are welcome. Please submit Pull Requests.
