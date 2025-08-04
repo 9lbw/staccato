@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"staccato/pkg/models"
@@ -21,6 +22,7 @@ type Extractor struct {
 	supportedFormats []string
 	logger           *logrus.Logger
 	albumArtCache    map[string][]byte // Cache for album art
+	albumArtMux      sync.RWMutex      // Mutex for album art cache
 }
 
 // NewExtractor creates a new metadata extractor
@@ -32,6 +34,7 @@ func NewExtractor(supportedFormats []string) *Extractor {
 		supportedFormats: supportedFormats,
 		logger:           logger,
 		albumArtCache:    make(map[string][]byte),
+		albumArtMux:      sync.RWMutex{},
 	}
 }
 
@@ -253,8 +256,10 @@ func (e *Extractor) extractAlbumArt(metadata tag.Metadata) (string, bool) {
 			hash := md5.Sum(picture.Data)
 			artID := fmt.Sprintf("%x", hash)
 
-			// Cache the album art data
+			// Cache the album art data safely
+			e.albumArtMux.Lock()
 			e.albumArtCache[artID] = picture.Data
+			e.albumArtMux.Unlock()
 
 			return artID, true
 		}
@@ -266,7 +271,10 @@ func (e *Extractor) extractAlbumArt(metadata tag.Metadata) (string, bool) {
 
 // GetAlbumArt retrieves cached album art by ID
 func (e *Extractor) GetAlbumArt(artID string) ([]byte, bool) {
+	// Thread-safe read
+	e.albumArtMux.RLock()
 	data, exists := e.albumArtCache[artID]
+	e.albumArtMux.RUnlock()
 	return data, exists
 }
 

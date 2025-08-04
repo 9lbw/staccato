@@ -77,12 +77,15 @@ func (ms *MusicServer) handleFileEvent(event fsnotify.Event) {
 
 	switch {
 	case event.Has(fsnotify.Create) && isAudioFile:
-		// Wait a bit to ensure file is fully written
-		time.Sleep(500 * time.Millisecond)
-		ms.handleNewFile(event.Name)
+		// Dispatch new file processing asynchronously
+		go func(name string) {
+			time.Sleep(500 * time.Millisecond) // Ensure file is fully written
+			ms.handleNewFile(name)
+		}(event.Name)
 
 	case event.Has(fsnotify.Remove) && isAudioFile:
-		ms.handleRemovedFile(event.Name)
+		// Dispatch removal processing asynchronously
+		go ms.handleRemovedFile(event.Name)
 
 	case event.Has(fsnotify.Create):
 		// Check if it's a new directory
