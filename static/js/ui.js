@@ -241,6 +241,11 @@ async function playTrack(trackId) {
                 audioPlayer.removeEventListener('loadeddata', onLoaded);
                 audioPlayer.play().then(() => {
                     console.log('Audio started playing');
+                    
+                    // Initialize media session for new track
+                    if (window.mediaSessionManager) {
+                        mediaSessionManager.onTrackStart(track);
+                    }
                 }).catch(error => {
                     console.error('Error playing audio:', error);
                 });

@@ -37,9 +37,17 @@ function togglePlayPause() {
         if (audioPlayer.paused) {
             audioPlayer.play();
             icon.className = 'nf nf-md-pause';
+            // Update media session
+            if (window.mediaSessionManager) {
+                mediaSessionManager.onTrackResume();
+            }
         } else {
             audioPlayer.pause();
             icon.className = 'nf nf-md-play';
+            // Update media session
+            if (window.mediaSessionManager) {
+                mediaSessionManager.onTrackPause();
+            }
         }
     }
 }
@@ -192,6 +200,11 @@ function updateProgress() {
         progressFill.style.width = percentage + '%';
         currentTimeSpan.textContent = formatTime(audioPlayer.currentTime);
         totalTimeSpan.textContent = formatTime(audioPlayer.duration);
+        
+        // Update media session position
+        if (window.mediaSessionManager) {
+            mediaSessionManager.onTimeUpdate(audioPlayer.currentTime, audioPlayer.duration);
+        }
     }
 }
 
@@ -276,9 +289,18 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Handle track ending
         audioPlayer.addEventListener('ended', function() {
+            // Update media session
+            if (window.mediaSessionManager) {
+                mediaSessionManager.onTrackEnd();
+            }
+            
             if (repeatMode === 2) { // Repeat track
                 audioPlayer.currentTime = 0;
                 audioPlayer.play();
+                // Update media session for repeated track
+                if (window.mediaSessionManager) {
+                    mediaSessionManager.onTrackResume();
+                }
             } else {
                 playNextTrack();
             }
@@ -289,6 +311,23 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Audio player error:', e);
             const errorMsg = 'Error playing audio. Please try another track.';
             // You could show this error to the user in the UI
+        });
+        
+        // Handle when audio starts playing
+        audioPlayer.addEventListener('play', function() {
+            if (window.mediaSessionManager && currentTrackId) {
+                const track = tracks.find(t => t.id === currentTrackId);
+                if (track) {
+                    mediaSessionManager.onTrackStart(track);
+                }
+            }
+        });
+        
+        // Handle when audio is paused
+        audioPlayer.addEventListener('pause', function() {
+            if (window.mediaSessionManager) {
+                mediaSessionManager.onTrackPause();
+            }
         });
     }
 });
