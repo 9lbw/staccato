@@ -226,23 +226,23 @@ function seekToPosition(event) {
 
 // Play next track
 function playNextTrack() {
-    if (tracks.length === 0 || currentTrackIndex === -1) {
+    if (!Array.isArray(currentTrackList) || currentTrackList.length === 0 || currentTrackIndex === -1) {
         console.log('No tracks to play next');
         return;
     }
-    
+
     let nextIndex;
-    
+
     if (isShuffled) {
         // Random next track
         do {
-            nextIndex = Math.floor(Math.random() * tracks.length);
-        } while (nextIndex === currentTrackIndex && tracks.length > 1);
+            nextIndex = Math.floor(Math.random() * currentTrackList.length);
+        } while (nextIndex === currentTrackIndex && currentTrackList.length > 1);
     } else {
         // Sequential next track
         nextIndex = currentTrackIndex + 1;
-        
-        if (nextIndex >= tracks.length) {
+
+        if (nextIndex >= currentTrackList.length) {
             if (repeatMode === 1) { // Repeat playlist
                 nextIndex = 0;
             } else {
@@ -251,32 +251,32 @@ function playNextTrack() {
             }
         }
     }
-    
-    if (nextIndex < tracks.length && nextIndex >= 0) {
-        playTrack(tracks[nextIndex].id);
+
+    if (nextIndex < currentTrackList.length && nextIndex >= 0) {
+        playTrack(currentTrackList[nextIndex].id);
     }
 }
 
 // Play previous track
 function playPreviousTrack() {
-    if (tracks.length === 0 || currentTrackIndex === -1) {
+    if (!Array.isArray(currentTrackList) || currentTrackList.length === 0 || currentTrackIndex === -1) {
         console.log('No tracks to play previous');
         return;
     }
-    
+
     let prevIndex = currentTrackIndex - 1;
-    
+
     if (prevIndex < 0) {
         if (repeatMode === 1) { // Repeat playlist
-            prevIndex = tracks.length - 1;
+            prevIndex = currentTrackList.length - 1;
         } else {
             console.log('At beginning of playlist');
             return;
         }
     }
-    
-    if (prevIndex < tracks.length && prevIndex >= 0) {
-        playTrack(tracks[prevIndex].id);
+
+    if (prevIndex < currentTrackList.length && prevIndex >= 0) {
+        playTrack(currentTrackList[prevIndex].id);
     }
 }
 

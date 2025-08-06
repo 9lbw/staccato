@@ -17,6 +17,9 @@
 # Go workspace file
 go.work
 
+# no need for playlist covers to be uploaded to git
+static/covers
+
 # Build artifacts
 bin/
 dist/

@@ -227,6 +227,37 @@
         </div>
     </div>
 
+    <!-- Edit Playlist Modal -->
+    <div id="editPlaylistModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>EDIT PLAYLIST</h2>
+                <span class="close" onclick="closeEditPlaylistModal()">×</span>
+            </div>
+            <div class="modal-body">
+                <form onsubmit="updatePlaylist(event)">
+                    <div class="form-group">
+                        <label for="editPlaylistName">NAME</label>
+                        <input type="text" id="editPlaylistName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editPlaylistDescription">DESCRIPTION</label>
+                        <textarea id="editPlaylistDescription"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="playlistCover">COVER IMAGE</label>
+                        <input type="file" id="playlistCover" accept="image/*" onchange="previewPlaylistCover(event)">
+                        <div id="coverPreview" style="margin-top: 10px;"></div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeEditPlaylistModal()">CANCEL</button>
+                        <button type="submit" class="btn">UPDATE</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript Files -->
     <script src="static/js/app.js"></script>
     <script src="static/js/media-session.js"></script>

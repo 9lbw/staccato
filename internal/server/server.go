@@ -206,8 +206,13 @@ func (ms *MusicServer) setupRoutes() {
 			case "DELETE":
 				ms.handleRemoveTrackFromPlaylist(w, r)
 			}
-		} else if r.Method == "DELETE" {
-			ms.handleDeletePlaylist(w, r)
+		} else {
+			switch r.Method {
+			case "DELETE":
+				ms.handleDeletePlaylist(w, r)
+			case "PUT":
+				ms.handleUpdatePlaylist(w, r)
+			}
 		}
 	})
 }

@@ -2,9 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // handleGetPlaylists handles the GET request for playlists
@@ -188,4 +193,90 @@ func (ms *MusicServer) handleDeletePlaylist(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	ms.setCORSHeaders(w)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Playlist deleted"})
+}
+
+// handleUpdatePlaylist handles updating a playlist with multipart form data (including cover upload)
+func (ms *MusicServer) handleUpdatePlaylist(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "PUT" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 4 {
+		http.Error(w, "Invalid playlist ID", http.StatusBadRequest)
+		return
+	}
+
+	playlistID, err := strconv.Atoi(pathParts[3])
+	if err != nil {
+		http.Error(w, "Invalid playlist ID", http.StatusBadRequest)
+		return
+	}
+
+	// Parse multipart form data
+	err = r.ParseMultipartForm(32 << 20) // 32 MB max memory
+	if err != nil {
+		http.Error(w, "Error parsing form data", http.StatusBadRequest)
+		return
+	}
+
+	name := r.FormValue("name")
+	description := r.FormValue("description")
+
+	if name == "" {
+		http.Error(w, "Playlist name is required", http.StatusBadRequest)
+		return
+	}
+
+	var coverPath string
+
+	// Handle file upload if present
+	file, header, err := r.FormFile("cover")
+	if err == nil {
+		defer file.Close()
+
+		// Create covers directory if it doesn't exist
+		coversDir := filepath.Join("static", "covers")
+		if err := os.MkdirAll(coversDir, 0755); err != nil {
+			http.Error(w, "Error creating covers directory", http.StatusInternalServerError)
+			return
+		}
+
+		// Generate unique filename
+		ext := filepath.Ext(header.Filename)
+		filename := fmt.Sprintf("playlist_%d_%d%s", playlistID, time.Now().Unix(), ext)
+		coverPath = filepath.Join(coversDir, filename)
+
+		// Save the file
+		dst, err := os.Create(coverPath)
+		if err != nil {
+			http.Error(w, "Error saving cover image", http.StatusInternalServerError)
+			return
+		}
+		defer dst.Close()
+
+		_, err = io.Copy(dst, file)
+		if err != nil {
+			http.Error(w, "Error saving cover image", http.StatusInternalServerError)
+			return
+		}
+
+		// Convert to relative path for storage in database
+		coverPath = filepath.ToSlash(coverPath) // Convert to forward slashes for consistency
+	} else if err != http.ErrMissingFile {
+		http.Error(w, "Error processing cover image", http.StatusBadRequest)
+		return
+	}
+
+	// Update playlist in database
+	err = ms.db.UpdatePlaylist(playlistID, name, description, coverPath)
+	if err != nil {
+		http.Error(w, "Error updating playlist", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	ms.setCORSHeaders(w)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Playlist updated successfully"})
 }

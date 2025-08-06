@@ -61,6 +61,7 @@ func (db *Database) createTables() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		description TEXT,
+		cover_path TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -93,6 +94,33 @@ func (db *Database) createTables() error {
 
 	for _, index := range indices {
 		if _, err := db.conn.Exec(index); err != nil {
+			return err
+		}
+	}
+
+	// Run migrations
+	if err := db.runMigrations(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (db *Database) runMigrations() error {
+	// Migration 1: Add cover_path column to playlists table if it doesn't exist
+	var columnExists bool
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*) > 0 
+		FROM pragma_table_info('playlists') 
+		WHERE name = 'cover_path'`).Scan(&columnExists)
+
+	if err != nil {
+		return err
+	}
+
+	if !columnExists {
+		_, err = db.conn.Exec("ALTER TABLE playlists ADD COLUMN cover_path TEXT")
+		if err != nil {
 			return err
 		}
 	}
@@ -218,11 +246,11 @@ func (db *Database) CreatePlaylist(name, description string) (int, error) {
 
 func (db *Database) GetAllPlaylists() ([]models.Playlist, error) {
 	rows, err := db.conn.Query(`
-		SELECT p.id, p.name, p.description, p.created_at,
+		SELECT p.id, p.name, p.description, p.cover_path, p.created_at,
 			   COALESCE(COUNT(pt.track_id), 0) as track_count
 		FROM playlists p
 		LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
-		GROUP BY p.id, p.name, p.description, p.created_at
+		GROUP BY p.id, p.name, p.description, p.cover_path, p.created_at
 		ORDER BY p.created_at DESC`)
 
 	if err != nil {
@@ -233,10 +261,14 @@ func (db *Database) GetAllPlaylists() ([]models.Playlist, error) {
 	var playlists []models.Playlist
 	for rows.Next() {
 		var playlist models.Playlist
+		var coverPath sql.NullString
 		err := rows.Scan(&playlist.ID, &playlist.Name, &playlist.Description,
-			&playlist.CreatedAt, &playlist.TrackCount)
+			&coverPath, &playlist.CreatedAt, &playlist.TrackCount)
 		if err != nil {
 			return nil, err
+		}
+		if coverPath.Valid {
+			playlist.CoverPath = coverPath.String
 		}
 		playlists = append(playlists, playlist)
 	}
@@ -311,6 +343,15 @@ func (db *Database) RemoveTrackFromPlaylist(playlistID, trackID int) error {
 
 func (db *Database) DeletePlaylist(playlistID int) error {
 	_, err := db.conn.Exec("DELETE FROM playlists WHERE id = ?", playlistID)
+	return err
+}
+
+func (db *Database) UpdatePlaylist(playlistID int, name, description, coverPath string) error {
+	_, err := db.conn.Exec(`
+		UPDATE playlists 
+		SET name = ?, description = ?, cover_path = ?
+		WHERE id = ?`,
+		name, description, coverPath, playlistID)
 	return err
 }
 

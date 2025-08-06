@@ -32,7 +32,7 @@ async function createPlaylist(event) {
     }
     
     try {
-        const response = await fetch('/api/playlists', {
+        const response = await fetch('/api/playlists/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: name.trim(), description: description.trim() })
@@ -63,14 +63,24 @@ function showAddToPlaylistModal(trackId) {
     if (playlists.length === 0) {
         optionsContainer.innerHTML = '<div class="loading">No playlists available. Create a playlist first.</div>';
     } else {
-        optionsContainer.innerHTML = playlists.map(playlist => `
-            <div class="playlist-item" onclick="addTrackToPlaylist(${trackId}, ${playlist.id})">
-                <div class="playlist-meta">
-                    <div class="playlist-name">${escapeHtml(playlist.name)}</div>
-                    <div class="playlist-info">${playlist.track_count || 0} tracks</div>
-                </div>
+        optionsContainer.innerHTML = `
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 15px;">
+                ${playlists.map(playlist => `
+                    <div class="playlist-item" onclick="addTrackToPlaylist(${trackId}, ${playlist.id})" style="padding: 12px;">
+                        <div class="playlist-cover" style="width: 80px; height: 80px; margin-bottom: 8px;">
+                            ${playlist.coverPath ? 
+                                `<img src="${playlist.coverPath}" alt="Playlist Cover" onerror="this.parentElement.innerHTML='<i class=\\"nf nf-md-playlist_music default-icon\\" style=\\"font-size: 24px;\\"></i>'">` : 
+                                '<i class="nf nf-md-playlist_music default-icon" style="font-size: 24px;"></i>'
+                            }
+                        </div>
+                        <div class="playlist-meta">
+                            <div class="playlist-name" style="font-size: 11px;">${escapeHtml(playlist.name)}</div>
+                            <div class="playlist-info" style="font-size: 10px;">${playlist.trackCount || 0} tracks</div>
+                        </div>
+                    </div>
+                `).join('')}
             </div>
-        `).join('');
+        `;
     }
     
     modal.style.display = 'block';
@@ -115,7 +125,7 @@ async function showPlaylist(playlistId) {
     try {
         const response = await fetch(`/api/playlists/${playlistId}/tracks`);
         if (response.ok) {
-            const playlistTracks = await response.json();
+            window.playlistTracks = await response.json();
             const playlist = playlists.find(p => p.id === playlistId);
             
             if (playlist) {
@@ -123,11 +133,14 @@ async function showPlaylist(playlistId) {
             }
             
             const tracksContainer = document.getElementById('playlist-tracks');
-            if (playlistTracks.length === 0) {
+            if (window.playlistTracks.length === 0) {
                 tracksContainer.innerHTML = '<div class="loading">No tracks in this playlist</div>';
             } else {
-                tracksContainer.innerHTML = playlistTracks.map(track => `
+                tracksContainer.innerHTML = window.playlistTracks.map(track => `
                     <div class="track-item${currentTrackId === track.id ? ' playing' : ''}" onclick="playTrack(${track.id})">
+                        ${track.hasAlbumArt ? `<div class="album-art">
+                            <img src="/albumart/${track.albumArtId}" alt="Album Art" onerror="this.parentElement.style.display='none'">
+                        </div>` : ''}
                         <div class="track-info">
                             <div class="track-title">${escapeHtml(track.title)}</div>
                             <div class="track-artist">${escapeHtml(track.artist)}</div>
@@ -210,6 +223,7 @@ async function deletePlaylist(playlistId) {
 window.addEventListener('click', function(event) {
     const createModal = document.getElementById('createPlaylistModal');
     const addModal = document.getElementById('addToPlaylistModal');
+    const editModal = document.getElementById('editPlaylistModal');
     
     if (event.target === createModal) {
         closeCreatePlaylistModal();
@@ -218,4 +232,104 @@ window.addEventListener('click', function(event) {
     if (event.target === addModal) {
         closeAddToPlaylistModal();
     }
+    
+    if (event.target === editModal) {
+        closeEditPlaylistModal();
+    }
 });
+
+// Edit playlist functions
+let currentEditPlaylistId = null;
+
+// Show edit playlist modal
+function showEditPlaylistModal(playlistId) {
+    const playlist = playlists.find(p => p.id === playlistId);
+    if (!playlist) return;
+    
+    currentEditPlaylistId = playlistId;
+    const modal = document.getElementById('editPlaylistModal');
+    
+    // Populate form with current values
+    document.getElementById('editPlaylistName').value = playlist.name;
+    document.getElementById('editPlaylistDescription').value = playlist.description || '';
+    
+    // Clear cover preview
+    document.getElementById('coverPreview').innerHTML = '';
+    document.getElementById('playlistCover').value = '';
+    
+    modal.style.display = 'block';
+}
+
+// Close edit playlist modal
+function closeEditPlaylistModal() {
+    const modal = document.getElementById('editPlaylistModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    currentEditPlaylistId = null;
+}
+
+// Preview playlist cover
+function previewPlaylistCover(event) {
+    const file = event.target.files[0];
+    const preview = document.getElementById('coverPreview');
+    
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            preview.innerHTML = `
+                <div style="text-align: center;">
+                    <img src="${e.target.result}" style="max-width: 150px; max-height: 150px; border-radius: 6px;" alt="Cover Preview">
+                    <p style="margin-top: 8px; font-size: 12px; color: #888;">Preview</p>
+                </div>
+            `;
+        };
+        reader.readAsDataURL(file);
+    } else {
+        preview.innerHTML = '';
+    }
+}
+
+// Update playlist
+async function updatePlaylist(event) {
+    event.preventDefault();
+    
+    if (!currentEditPlaylistId) return;
+    
+    const name = document.getElementById('editPlaylistName').value;
+    const description = document.getElementById('editPlaylistDescription').value;
+    const coverFile = document.getElementById('playlistCover').files[0];
+    
+    if (!name.trim()) {
+        alert('Please enter a playlist name');
+        return;
+    }
+    
+    try {
+        // Create FormData for file upload
+        const formData = new FormData();
+        formData.append('name', name.trim());
+        formData.append('description', description.trim());
+        
+        if (coverFile) {
+            formData.append('cover', coverFile);
+        }
+        
+        const response = await fetch(`/api/playlists/${currentEditPlaylistId}`, {
+            method: 'PUT',
+            body: formData
+        });
+        
+        if (response.ok) {
+            closeEditPlaylistModal();
+            await loadPlaylists(); // Reload playlists
+            showNotification('Playlist updated successfully!');
+        } else {
+            const error = await response.text();
+            alert('Failed to update playlist: ' + error);
+        }
+    } catch (error) {
+        console.error('Error updating playlist:', error);
+        alert('Error updating playlist');
+    }
+}

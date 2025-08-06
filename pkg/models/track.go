@@ -21,6 +21,7 @@ type Playlist struct {
 	ID          int       `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
+	CoverPath   string    `json:"coverPath,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	TrackCount  int       `json:"trackCount"`
 }

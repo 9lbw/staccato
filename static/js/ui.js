@@ -10,25 +10,30 @@ function showSection(section) {
             element.style.display = 'none';
         }
     });
-    
+
+    // Clear playlistTracks when leaving playlist-detail
+    if (section !== 'playlist-detail') {
+        delete window.playlistTracks;
+    }
+
     // Show selected section
     const selectedSection = document.getElementById(section + '-section');
     if (selectedSection) {
         selectedSection.style.display = 'block';
     }
-    
+
     // Update navigation
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
     });
-    
+
     const activeNavItem = document.querySelector(`[onclick="showSection('${section}')"]`);
     if (activeNavItem) {
         activeNavItem.classList.add('active');
     }
-    
+
     currentSection = section;
-    
+
     // Close mobile sidebar
     if (window.innerWidth <= 768) {
         const sidebar = document.getElementById('sidebar');
@@ -114,9 +119,19 @@ function displayPlaylists() {
     
     playlistsContainer.innerHTML = playlists.map(playlist => `
         <div class="playlist-item" onclick="showPlaylist(${playlist.id})">
+            <div class="playlist-cover">
+                ${playlist.coverPath ? 
+                    `<img src="${playlist.coverPath}" alt="Playlist Cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                     <i class="nf nf-md-playlist_music default-icon" style="display: none;"></i>` : 
+                    '<i class="nf nf-md-playlist_music default-icon"></i>'
+                }
+                <button class="playlist-edit-btn" onclick="event.stopPropagation(); showEditPlaylistModal(${playlist.id})" title="Edit Playlist">
+                    <i class="nf nf-md-pencil"></i>
+                </button>
+            </div>
             <div class="playlist-meta">
                 <div class="playlist-name">${escapeHtml(playlist.name)}</div>
-                <div class="playlist-info">${playlist.track_count || 0} tracks</div>
+                <div class="playlist-info">${playlist.trackCount || 0} tracks</div>
             </div>
             <div class="playlist-actions">
                 <button class="btn btn-secondary" onclick="event.stopPropagation(); showPlaylist(${playlist.id})">VIEW</button>
@@ -196,52 +211,60 @@ async function playTrack(trackId) {
     console.log(`Playing track ${trackId}`);
     
     try {
+        // Determine the source list: playlist or global
+        let sourceList = tracks;
+        
+        if (currentSection === 'playlist-detail' && window.playlistTracks && Array.isArray(window.playlistTracks) && window.playlistTracks.length > 0) {
+            sourceList = window.playlistTracks;
+        }
+
         // Find the track info
-        const track = tracks.find(t => t.id === trackId);
+        const track = sourceList.find(t => t.id === trackId);
         if (!track) {
-            console.error(`Track with ID ${trackId} not found`);
+            console.error(`Track with ID ${trackId} not found in sourceList:`, sourceList);
             return;
         }
-        
+
         // Update global state
         currentTrackId = trackId;
-        currentTrackIndex = tracks.findIndex(t => t.id === trackId);
-        
+        currentTrackIndex = sourceList.findIndex(t => t.id === trackId);
+        currentTrackList = sourceList;
+
         // Update UI to show currently playing track
         document.querySelectorAll('.track-item').forEach(item => {
             item.classList.remove('playing');
         });
-        
+
         // Find and highlight the currently playing track
         const playingTrack = document.querySelector(`[onclick*="playTrack(${trackId})"]`);
         if (playingTrack) {
             playingTrack.classList.add('playing');
         }
-        
+
         // Show player
         const player = document.getElementById('player');
         if (player) {
             player.style.display = 'block';
         }
-        
+
         // Update now playing info
         const nowPlayingTitle = document.getElementById('nowPlayingTitle');
         const nowPlayingArtist = document.getElementById('nowPlayingArtist');
-        
+
         if (nowPlayingTitle) nowPlayingTitle.textContent = track.title;
         if (nowPlayingArtist) nowPlayingArtist.textContent = track.artist;
-        
+
         // Set audio source and play
         const audioPlayer = document.getElementById('audioPlayer');
         if (audioPlayer) {
             audioPlayer.src = `/stream/${trackId}`;
-            
+
             // Wait for the audio to load and then play
             audioPlayer.addEventListener('loadeddata', function onLoaded() {
                 audioPlayer.removeEventListener('loadeddata', onLoaded);
                 audioPlayer.play().then(() => {
                     console.log('Audio started playing');
-                    
+
                     // Initialize media session for new track
                     if (window.mediaSessionManager) {
                         mediaSessionManager.onTrackStart(track);
@@ -250,7 +273,7 @@ async function playTrack(trackId) {
                     console.error('Error playing audio:', error);
                 });
             });
-            
+
             // Update play button icon
             const playPauseBtn = document.getElementById('playPauseBtn');
             if (playPauseBtn) {
@@ -258,7 +281,7 @@ async function playTrack(trackId) {
                 if (icon) icon.className = 'nf nf-md-pause';
             }
         }
-        
+
     } catch (error) {
         console.error('Error playing track:', error);
     }
