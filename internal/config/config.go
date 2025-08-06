@@ -20,11 +20,13 @@ type Config struct {
 
 // ServerConfig contains server-related configuration
 type ServerConfig struct {
-	Port        string `toml:"port"`
-	Host        string `toml:"host"`
-	StaticDir   string `toml:"static_dir"`
-	EnableCORS  bool   `toml:"enable_cors"`
-	ReadTimeout int    `toml:"read_timeout_seconds"`
+	Port         string `toml:"port"`
+	Host         string `toml:"host"`
+	StaticDir    string `toml:"static_dir"`
+	EnableCORS   bool   `toml:"enable_cors"`
+	ReadTimeout  int    `toml:"read_timeout_seconds"`
+	WriteTimeout int    `toml:"write_timeout_seconds"`
+	IdleTimeout  int    `toml:"idle_timeout_seconds"`
 }
 
 // DatabaseConfig contains database-related configuration
@@ -43,9 +45,10 @@ type MusicConfig struct {
 
 // LoggingConfig contains logging configuration
 type LoggingConfig struct {
-	Level  string `toml:"level"`
-	Format string `toml:"format"`
-	File   string `toml:"file"`
+	Level          string `toml:"level"`
+	Format         string `toml:"format"`
+	File           string `toml:"file"`
+	RequestLogging bool   `toml:"request_logging"`
 }
 
 // DownloaderConfig contains music download configuration
@@ -71,11 +74,13 @@ type NgrokConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:        "8080",
-			Host:        "0.0.0.0",
-			StaticDir:   "./static",
-			EnableCORS:  true,
-			ReadTimeout: 30,
+			Port:         "8080",
+			Host:         "0.0.0.0",
+			StaticDir:    "./static",
+			EnableCORS:   true,
+			ReadTimeout:  30,
+			WriteTimeout: 30,
+			IdleTimeout:  120,
 		},
 		Database: DatabaseConfig{
 			Path:           "./staccato.db",
@@ -88,9 +93,10 @@ func DefaultConfig() *Config {
 			ScanOnStartup:    true,
 		},
 		Logging: LoggingConfig{
-			Level:  "info",
-			Format: "text",
-			File:   "",
+			Level:          "info",
+			Format:         "text",
+			File:           "",
+			RequestLogging: false,
 		},
 		Downloader: DownloaderConfig{
 			Enabled:       true,
@@ -183,6 +189,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Server.ReadTimeout < 0 {
 		return fmt.Errorf("server read timeout must be positive")
+	}
+	if c.Server.WriteTimeout < 0 {
+		return fmt.Errorf("server write timeout must be positive")
+	}
+	if c.Server.IdleTimeout < 0 {
+		return fmt.Errorf("server idle timeout must be positive")
 	}
 
 	// Validate database config

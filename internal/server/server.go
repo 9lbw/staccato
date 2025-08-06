@@ -32,6 +32,8 @@ type MusicServer struct {
 	downloader   *downloader.Downloader
 	ngrokService *ngrok.Service
 	playerState  *player.StateManager
+	server       *http.Server
+	shutdownCh   chan struct{}
 }
 
 // NewMusicServer creates a new music server instance
@@ -60,6 +62,7 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		downloader:   dl,
 		ngrokService: ngrokSvc,
 		playerState:  playerState,
+		shutdownCh:   make(chan struct{}),
 	}
 
 	return server, nil
@@ -121,14 +124,12 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 	return walkErr
 }
 
-// Start starts the music server
+// Start starts the music server with graceful shutdown support
 func (ms *MusicServer) Start() {
 	// Start file watcher if enabled
 	if ms.config.Music.WatchForChanges {
 		if err := ms.startFileWatcher(); err != nil {
 			log.Printf("Warning: Could not start file watcher: %v", err)
-		} else {
-			defer ms.stopFileWatcher()
 		}
 	}
 
@@ -156,46 +157,64 @@ func (ms *MusicServer) Start() {
 		ctx := context.Background()
 		if err := ms.ngrokService.StartTunnel(ctx, localAddress); err != nil {
 			log.Printf("Warning: Could not start ngrok tunnel: %v", err)
-		} else {
-			defer ms.ngrokService.Stop()
 		}
 	}
 
-	// Create server with timeout
-	server := &http.Server{
-		Addr:        ms.config.GetAddress(),
-		ReadTimeout: time.Duration(ms.config.Server.ReadTimeout) * time.Second,
+	// Create server with proper timeouts
+	ms.server = &http.Server{
+		Addr:         ms.config.GetAddress(),
+		ReadTimeout:  time.Duration(ms.config.Server.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(ms.config.Server.WriteTimeout) * time.Second,
+		IdleTimeout:  time.Duration(ms.config.Server.IdleTimeout) * time.Second,
+		Handler:      http.DefaultServeMux,
 	}
 
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal("Server failed to start:", err)
+	// Start server in a goroutine
+	serverErrCh := make(chan error, 1)
+	go func() {
+		log.Printf("HTTP server listening on %s", ms.server.Addr)
+		if err := ms.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErrCh <- fmt.Errorf("server failed to start: %w", err)
+		}
+	}()
+
+	// Wait for shutdown signal or server error
+	select {
+	case err := <-serverErrCh:
+		log.Fatalf("Server error: %v", err)
+	case <-ms.shutdownCh:
+		log.Println("Shutdown signal received, starting graceful shutdown...")
 	}
 }
 
 func (ms *MusicServer) setupRoutes() {
-	http.HandleFunc("/", ms.handleHome)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(ms.config.Server.StaticDir))))
-	http.HandleFunc("/api/tracks", ms.handleGetTracks)
-	http.HandleFunc("/api/tracks/count", ms.handleGetTrackCount)
-	http.HandleFunc("/stream/", ms.handleStreamTrack)
-	http.HandleFunc("/albumart/", ms.handleAlbumArt) // Album art endpoint
-	http.HandleFunc("/health", ms.handleHealthCheck) // Health check endpoint
+	// Create a new ServeMux
+	mux := http.NewServeMux()
+
+	// Set up routes
+	mux.HandleFunc("/", ms.handleHome)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(ms.config.Server.StaticDir))))
+	mux.HandleFunc("/api/tracks", ms.handleGetTracks)
+	mux.HandleFunc("/api/tracks/count", ms.handleGetTrackCount)
+	mux.HandleFunc("/stream/", ms.handleStreamTrack)
+	mux.HandleFunc("/albumart/", ms.handleAlbumArt) // Album art endpoint
+	mux.HandleFunc("/health", ms.handleHealthCheck) // Health check endpoint
 
 	// Player state routes
-	http.HandleFunc("/api/player/state", ms.handleGetPlayerState)
-	http.HandleFunc("/api/player/update", ms.handleUpdatePlayerState)
-	http.HandleFunc("/api/player/play/", ms.handleTrackPlay)
+	mux.HandleFunc("/api/player/state", ms.handleGetPlayerState)
+	mux.HandleFunc("/api/player/update", ms.handleUpdatePlayerState)
+	mux.HandleFunc("/api/player/play/", ms.handleTrackPlay)
 
 	// Download routes
-	http.HandleFunc("/api/download", ms.handleDownloadMusic)
-	http.HandleFunc("/api/downloads", ms.handleGetDownloads)
-	http.HandleFunc("/api/downloads/", ms.handleGetDownloads) // For specific job ID
-	http.HandleFunc("/api/validate-url", ms.handleValidateURL)
+	mux.HandleFunc("/api/download", ms.handleDownloadMusic)
+	mux.HandleFunc("/api/downloads", ms.handleGetDownloads)
+	mux.HandleFunc("/api/downloads/", ms.handleGetDownloads) // For specific job ID
+	mux.HandleFunc("/api/validate-url", ms.handleValidateURL)
 
 	// Playlist routes
-	http.HandleFunc("/api/playlists", ms.handleGetPlaylists)
-	http.HandleFunc("/api/playlists/create", ms.handleCreatePlaylist)
-	http.HandleFunc("/api/playlists/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/playlists", ms.handleGetPlaylists)
+	mux.HandleFunc("/api/playlists/create", ms.handleCreatePlaylist)
+	mux.HandleFunc("/api/playlists/", func(w http.ResponseWriter, r *http.Request) {
 		pathParts := strings.Split(r.URL.Path, "/")
 		if len(pathParts) >= 5 && pathParts[4] == "tracks" {
 			switch r.Method {
@@ -215,14 +234,71 @@ func (ms *MusicServer) setupRoutes() {
 			}
 		}
 	})
+
+	// Apply middleware chain
+	handler := ms.panicRecoveryMiddleware(mux)
+	handler = ms.requestLoggingMiddleware(handler)
+
+	// Set the handler for the default ServeMux (used by http.Server)
+	http.Handle("/", handler)
 }
 
 // Shutdown gracefully shuts down the music server
 func (ms *MusicServer) Shutdown() {
 	log.Println("Shutting down music server...")
 
+	// Signal the start method to begin shutdown (safely)
+	select {
+	case <-ms.shutdownCh:
+		// Already signaled
+	default:
+		close(ms.shutdownCh)
+	}
+
+	// Create a context with timeout for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Stop the HTTP server gracefully
+	if ms.server != nil {
+		log.Println("Shutting down HTTP server...")
+		if err := ms.server.Shutdown(ctx); err != nil {
+			log.Printf("Error during HTTP server shutdown: %v", err)
+			// Force close if graceful shutdown fails
+			if err := ms.server.Close(); err != nil {
+				log.Printf("Error force closing HTTP server: %v", err)
+			}
+		} else {
+			log.Println("HTTP server shut down gracefully")
+		}
+	}
+
 	// Stop file watcher
+	log.Println("Stopping file watcher...")
 	ms.stopFileWatcher()
 
+	// Stop ngrok service
+	if ms.ngrokService != nil {
+		log.Println("Stopping ngrok service...")
+		ms.ngrokService.Stop()
+	}
+
+	// Close database connection
+	if ms.db != nil {
+		log.Println("Closing database connection...")
+		ms.db.Close()
+	}
+
 	log.Println("Music server shutdown complete")
+}
+
+// RequestShutdown triggers a graceful shutdown from external code
+func (ms *MusicServer) RequestShutdown() {
+	select {
+	case <-ms.shutdownCh:
+		// Already shutting down
+		return
+	default:
+		close(ms.shutdownCh)
+	}
 }

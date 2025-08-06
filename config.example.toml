@@ -4,6 +4,8 @@ host = "0.0.0.0"
 static_dir = "./static"
 enable_cors = true
 read_timeout_seconds = 30
+write_timeout_seconds = 30
+idle_timeout_seconds = 120
 
 [database]
 path = "./staccato.db"
@@ -19,6 +21,7 @@ scan_on_startup = true
 level = "info"
 format = "text"
 file = ""
+request_logging = false
 
 [downloader]
 enabled = true

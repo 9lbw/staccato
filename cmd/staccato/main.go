@@ -54,12 +54,16 @@ func main() {
 		}
 	}
 
-	// Start the server
-	musicServer.Start()
-
 	// Handle graceful shutdown
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	// Start the server in a goroutine
+	go func() {
+		musicServer.Start()
+	}()
+
+	// Wait for shutdown signal
 	<-c
 
 	log.Println("Received shutdown signal")
