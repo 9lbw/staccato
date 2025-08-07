@@ -1,4 +1,4 @@
-# API Documentation for Staccato Music Server
+# API Documentation for Staccato
 
 ## Overview
 Staccato is a self-hosted music streaming server built in Go that provides a RESTful API for managing and streaming audio files. The server supports music library management, playlist creation, and audio downloading from external sources via yt-dlp.
