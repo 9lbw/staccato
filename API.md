@@ -1,7 +1,7 @@
 # API Documentation for Staccato Music Server
 
 ## Overview
-Staccato is a self-hosted music streaming server built in Go that provides a RESTful API for managing and streaming audio files. The server supports music library management, playlist creation, real-time player state synchronization, and audio downloading from external sources via yt-dlp.
+Staccato is a self-hosted music streaming server built in Go that provides a RESTful API for managing and streaming audio files. The server supports music library management, playlist creation, and audio downloading from external sources via yt-dlp.
 
 ## Base URL
 ```
@@ -211,140 +211,6 @@ All API endpoints support CORS when enabled in configuration:
 - Images are cached for 1 hour by default
 - Use the `albumArtId` from track objects to construct requests
 - Handle 404 errors gracefully by hiding album art or showing placeholders
-
----
-
-### Player State Management
-
-#### GET /api/player/state
-**Description:** Get the current player state including track, playback status, and controls
-
-**Authentication:** Not Required
-
-**Request:**
-- **Headers:** None required
-
-**Response:**
-
-*Success (200 OK):*
-```json
-{
-  "track": {
-    "id": 1,
-    "title": "Track Title",
-    "artist": "Artist Name",
-    "album": "Album Name",
-    "trackNumber": 1,
-    "duration": 240,
-    "fileSize": 8388608,
-    "hasAlbumArt": true,
-    "albumArtId": "abc123"
-  },
-  "isPlaying": true,
-  "currentTime": 45,
-  "totalDuration": 240,
-  "volume": 0.8,
-  "isMuted": false,
-  "isShuffled": false,
-  "repeatMode": 0,
-  "updatedAt": "2024-01-01T12:00:00Z"
-}
-```
-
-**Client Implementation Notes:**
-- `track` may be null if no track is loaded
-- `currentTime` and `totalDuration` are in seconds
-- `volume` ranges from 0.0 to 1.0
-- `repeatMode`: 0 = off, 1 = playlist, 2 = track
-- Use `updatedAt` to detect state changes
-
----
-
-#### POST /api/player/update
-**Description:** Update the player state from client applications
-
-**Authentication:** Not Required
-
-**Request:**
-- **Headers:**
-  - `Content-Type: application/json`
-- **Request Body:**
-```json
-{
-  "trackId": 1,
-  "isPlaying": true,
-  "currentTime": 45,
-  "totalDuration": 240,
-  "volume": 0.8,
-  "isMuted": false,
-  "isShuffled": false,
-  "repeatMode": 0
-}
-```
-
-*All fields are optional and will only update provided values.*
-
-**Response:**
-
-*Success (200 OK):*
-```json
-{
-  "status": "success",
-  "message": "Player state updated"
-}
-```
-
-*Error (400 Bad Request):*
-```
-"Invalid JSON"
-```
-
-*Error (404 Not Found):*
-```
-"Track not found"
-```
-
-**Client Implementation Notes:**
-- Send only the fields you want to update
-- Set `trackId` to 0 to clear the current track
-- Volume should be between 0.0 and 1.0
-- Time values should be in seconds
-
----
-
-#### POST /api/player/play/{trackId}
-**Description:** Start playing a specific track and update player state
-
-**Authentication:** Not Required
-
-**Request:**
-- **Path Parameters:**
-  - `trackId` (integer, required): ID of the track to start playing
-
-**Response:**
-
-*Success (200 OK):*
-```json
-{
-  "status": "success",
-  "message": "Track play state updated"
-}
-```
-
-*Error (400 Bad Request):*
-```
-"Invalid track ID"
-```
-
-*Error (404 Not Found):*
-```
-"Track not found"
-```
-
-**Client Implementation Notes:**
-- Automatically sets `isPlaying` to true for the specified track
-- Updates the global player state
-- Use this when a user clicks play on a specific track
 
 ---
 
@@ -861,21 +727,6 @@ All API endpoints support CORS when enabled in configuration:
 }
 ```
 
-### Player State
-```json
-{
-  "track": "Track object or null",
-  "isPlaying": "boolean - Current playback state",
-  "currentTime": "integer - Current position in seconds",
-  "totalDuration": "integer - Track duration in seconds", 
-  "volume": "number - Volume level (0.0-1.0)",
-  "isMuted": "boolean - Mute state",
-  "isShuffled": "boolean - Shuffle mode",
-  "repeatMode": "integer - Repeat mode (0=off, 1=playlist, 2=track)",
-  "updatedAt": "string - ISO 8601 timestamp"
-}
-```
-
 ### Download Job
 ```json
 {
@@ -916,11 +767,10 @@ CORS support can be enabled/disabled via the `enable_cors` setting in the server
 const response = await fetch('/api/tracks');
 const tracks = await response.json();
 
-// 2. Start playing first track
-await fetch(`/api/player/play/${tracks[0].id}`, { method: 'POST' });
-
-// 3. Set audio source
+// 2. Set audio source and play
+const audio = document.getElementById('audioPlayer');
 audio.src = `/stream/${tracks[0].id}`;
+audio.play();
 ```
 
 ### Creating and Managing Playlists
@@ -960,23 +810,4 @@ const { job_id } = await downloadResponse.json();
 const statusResponse = await fetch(`/api/downloads/${job_id}`);
 const job = await statusResponse.json();
 console.log(`Status: ${job.status}, Progress: ${job.progress}%`);
-```
-
-### Real-time Player Sync
-```javascript
-// Update player state
-await fetch('/api/player/update', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    currentTime: 45,
-    volume: 0.8,
-    isPlaying: true
-  })
-});
-
-// Get current state
-const stateResponse = await fetch('/api/player/state');
-const state = await stateResponse.json();
-console.log('Current track:', state.track?.title);
 ```

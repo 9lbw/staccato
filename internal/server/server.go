@@ -18,7 +18,6 @@ import (
 	"staccato/internal/downloader"
 	"staccato/internal/metadata"
 	"staccato/internal/ngrok"
-	"staccato/internal/player"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -31,7 +30,6 @@ type MusicServer struct {
 	extractor    *metadata.Extractor
 	downloader   *downloader.Downloader
 	ngrokService *ngrok.Service
-	playerState  *player.StateManager
 	server       *http.Server
 	shutdownCh   chan struct{}
 }
@@ -52,16 +50,12 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		ngrokSvc = nil
 	}
 
-	// Create player state manager
-	playerState := player.NewStateManager()
-
 	server := &MusicServer{
 		db:           db,
 		config:       cfg,
 		extractor:    metadata.NewExtractor(cfg.Music.SupportedFormats),
 		downloader:   dl,
 		ngrokService: ngrokSvc,
-		playerState:  playerState,
 		shutdownCh:   make(chan struct{}),
 	}
 
@@ -199,11 +193,6 @@ func (ms *MusicServer) setupRoutes() {
 	mux.HandleFunc("/stream/", ms.handleStreamTrack)
 	mux.HandleFunc("/albumart/", ms.handleAlbumArt) // Album art endpoint
 	mux.HandleFunc("/health", ms.handleHealthCheck) // Health check endpoint
-
-	// Player state routes
-	mux.HandleFunc("/api/player/state", ms.handleGetPlayerState)
-	mux.HandleFunc("/api/player/update", ms.handleUpdatePlayerState)
-	mux.HandleFunc("/api/player/play/", ms.handleTrackPlay)
 
 	// Download routes
 	mux.HandleFunc("/api/download", ms.handleDownloadMusic)
