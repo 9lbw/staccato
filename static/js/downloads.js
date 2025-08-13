@@ -49,7 +49,7 @@ async function startDownload() {
 // Refresh download jobs
 async function refreshDownloadJobs() {
     try {
-        const response = await fetch('/api/download/jobs');
+    const response = await fetch('/api/downloads');
         if (response.ok) {
             const jobs = await response.json();
             displayDownloadJobs(jobs);
@@ -72,13 +72,19 @@ function displayDownloadJobs(jobs) {
         return;
     }
     
-    jobsContainer.innerHTML = jobs.map(job => `
+    jobsContainer.innerHTML = jobs.map(job => {
+        const eta = job.eta_seconds && job.status !== 'completed' && job.status !== 'failed'
+            ? formatETA(job.eta_seconds) : '';
+        const speed = job.speed ? job.speed : '';
+        const metaLine = (speed || eta) ? `<div class="job-meta-line">${speed ? 'Speed: ' + escapeHtml(speed) : ''} ${eta ? 'ETA: ' + eta : ''}</div>` : '';
+        return `
         <div class="download-job">
             <div class="job-header">
                 <div class="job-title">${escapeHtml(job.title || job.url)}</div>
                 <div class="job-status status-${job.status}">${job.status}</div>
             </div>
             <div class="job-url">${escapeHtml(job.url)}</div>
+            ${metaLine}
             ${job.progress !== undefined ? `
                 <div class="job-progress-container" style="display: block;">
                     <div class="job-progress-bar">
@@ -88,8 +94,18 @@ function displayDownloadJobs(jobs) {
                 </div>
             ` : ''}
             ${job.error ? `<div class="job-error">${escapeHtml(job.error)}</div>` : ''}
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
+}
+
+function formatETA(seconds) {
+    if (!seconds || seconds < 0) return '';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
 }
 
 // Update download statistics

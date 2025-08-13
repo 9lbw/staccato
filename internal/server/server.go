@@ -60,6 +60,11 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		shutdownCh:   make(chan struct{}),
 	}
 
+	// Attach ingestion capabilities if downloader available
+	if server.downloader != nil {
+		server.downloader.AttachIngest(server.db, server.extractor)
+	}
+
 	return server, nil
 }
 
@@ -200,6 +205,7 @@ func (ms *MusicServer) setupRoutes() http.Handler {
 	mux.HandleFunc("/api/downloads", ms.handleGetDownloads)
 	mux.HandleFunc("/api/downloads/", ms.handleGetDownloads) // For specific job ID
 	mux.HandleFunc("/api/validate-url", ms.handleValidateURL)
+	mux.HandleFunc("/api/downloads/cleanup", ms.handleCleanupDownloads)
 
 	// Playlist routes
 	mux.HandleFunc("/api/playlists", ms.handleGetPlaylists)

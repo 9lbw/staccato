@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // handleDownloadMusic handles music download requests
@@ -99,10 +100,34 @@ func (ms *MusicServer) handleGetDownloads(w http.ResponseWriter, r *http.Request
 		}
 		json.NewEncoder(w).Encode(job)
 	} else {
-		// Get all jobs
+		// Get all in-memory jobs
 		jobs := ms.downloader.GetAllJobs()
 		json.NewEncoder(w).Encode(jobs)
 	}
+}
+
+// handleCleanupDownloads removes completed/failed jobs older than ?age= (minutes, default 60)
+func (ms *MusicServer) handleCleanupDownloads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	ms.setCORSHeaders(w)
+	if ms.downloader == nil {
+		http.Error(w, "Downloader not available", http.StatusServiceUnavailable)
+		return
+	}
+	ageStr := r.URL.Query().Get("age")
+	ageMinutes := 60
+	if ageStr != "" {
+		fmt.Sscanf(ageStr, "%d", &ageMinutes)
+	}
+	if ageMinutes < 1 {
+		ageMinutes = 1
+	}
+	ms.downloader.CleanupCompletedJobs(time.Duration(ageMinutes) * time.Minute)
+	json.NewEncoder(w).Encode(map[string]any{"message": "cleanup complete", "age_minutes": ageMinutes})
 }
 
 // handleValidateURL handles URL validation requests

@@ -1,15 +1,21 @@
 package downloader
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"staccato/internal/config"
+	"staccato/internal/database"
+	"staccato/internal/metadata"
 
 	"github.com/google/uuid"
 )
@@ -35,6 +41,8 @@ type DownloadJob struct {
 	Progress    int            `json:"progress"`
 	Error       string         `json:"error,omitempty"`
 	OutputPath  string         `json:"output_path,omitempty"`
+	Speed       string         `json:"speed,omitempty"`
+	ETASeconds  int            `json:"eta_seconds,omitempty"`
 	CreatedAt   time.Time      `json:"created_at"`
 	CompletedAt *time.Time     `json:"completed_at,omitempty"`
 }
@@ -45,6 +53,9 @@ type Downloader struct {
 	jobs      map[string]*DownloadJob
 	jobsMux   sync.RWMutex
 	ytDlpPath string
+	sem       chan struct{} // concurrency semaphore
+	db        *database.Database
+	extractor *metadata.Extractor
 }
 
 // NewDownloader creates a new downloader instance
@@ -53,6 +64,12 @@ func NewDownloader(cfg *config.Config) (*Downloader, error) {
 		config: cfg,
 		jobs:   make(map[string]*DownloadJob),
 	}
+	// Set up semaphore for concurrency limit
+	max := cfg.Downloader.MaxConcurrent
+	if max < 1 {
+		max = 1
+	}
+	d.sem = make(chan struct{}, max)
 
 	// Check if yt-dlp is available
 	if err := d.checkYtDlp(); err != nil {
@@ -60,6 +77,12 @@ func NewDownloader(cfg *config.Config) (*Downloader, error) {
 	}
 
 	return d, nil
+}
+
+// AttachIngest enables automatic library ingestion after successful downloads.
+func (d *Downloader) AttachIngest(db *database.Database, extractor *metadata.Extractor) {
+	d.db = db
+	d.extractor = extractor
 }
 
 // checkYtDlp verifies that yt-dlp is installed and accessible
@@ -93,8 +116,13 @@ func (d *Downloader) DownloadFromURL(url, customTitle, customArtist string) (*Do
 	d.jobs[job.ID] = job
 	d.jobsMux.Unlock()
 
-	// Start download in background
-	go d.processDownload(job)
+	// Acquire semaphore slot then start download in background
+	go func() {
+		// Concurrency control
+		d.sem <- struct{}{}
+		defer func() { <-d.sem }()
+		d.processDownload(job)
+	}()
 
 	return job, nil
 }
@@ -103,55 +131,149 @@ func (d *Downloader) DownloadFromURL(url, customTitle, customArtist string) (*Do
 func (d *Downloader) processDownload(job *DownloadJob) {
 	d.updateJobStatus(job.ID, StatusDownloading, 0, "")
 
-	// First, get metadata about the video
-	metadata, err := d.getMetadata(job.URL)
+	// Retrieve remote metadata
+	meta, err := d.getMetadata(job.URL)
 	if err != nil {
-		d.updateJobStatus(job.ID, StatusFailed, 0, fmt.Sprintf("Failed to get metadata: %v", err))
+		d.updateJobStatus(job.ID, StatusFailed, 0, fmt.Sprintf("Failed metadata: %v", err))
 		return
 	}
-
-	// Use custom title/artist if provided, otherwise use metadata
 	if job.Title == "" {
-		job.Title = metadata.Title
+		job.Title = meta.Title
 	}
 	if job.Artist == "" {
-		job.Artist = metadata.Artist
-		if job.Artist == "" {
-			job.Artist = metadata.Uploader
+		if meta.Artist != "" {
+			job.Artist = meta.Artist
+		} else {
+			job.Artist = meta.Uploader
 		}
 	}
 
-	// Create safe filename
+	// Prepare output filename
 	safeTitle := d.sanitizeFilename(job.Title)
 	safeArtist := d.sanitizeFilename(job.Artist)
 	filename := fmt.Sprintf("%s - %s.%%(ext)s", safeArtist, safeTitle)
 	outputPath := filepath.Join(d.config.Music.LibraryPath, filename)
 
-	d.updateJobStatus(job.ID, StatusProcessing, 25, "Downloading audio...")
-
-	// Download the audio
+	// Build command with progress-friendly output
 	cmd := exec.Command(d.ytDlpPath,
 		"--extract-audio",
 		"--audio-format", d.config.Downloader.AudioFormat,
 		"--audio-quality", d.config.Downloader.AudioQuality,
-		"--output", outputPath,
 		"--no-playlist",
+		"--newline", // ensures progress lines
+		"--output", outputPath,
 		job.URL,
 	)
 
-	output, err := cmd.CombinedOutput()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		d.updateJobStatus(job.ID, StatusFailed, 0, fmt.Sprintf("Download failed: %v\nOutput: %s", err, string(output)))
+		d.updateJobStatus(job.ID, StatusFailed, 0, fmt.Sprintf("pipe error: %v", err))
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		d.updateJobStatus(job.ID, StatusFailed, 0, fmt.Sprintf("pipe error: %v", err))
 		return
 	}
 
-	// Find the actual output file (yt-dlp replaces %(ext)s with actual extension)
+	if err := cmd.Start(); err != nil {
+		d.updateJobStatus(job.ID, StatusFailed, 0, fmt.Sprintf("start error: %v", err))
+		return
+	}
+
+	// Example yt-dlp line: [download]  45.3% of 3.33MiB at 512.34KiB/s ETA 00:12
+	progressRe := regexp.MustCompile(`(?i)\[download\]\s+([0-9\.]+)%.*?at\s+([0-9\.]+[KMG]i?B/s).*?ETA\s+([0-9:]{2,8})`)
+	simplePercentRe := regexp.MustCompile(`(?i)\[download\]\s+([0-9\.]+)%`)
+	parseETA := func(etaStr string) int { // HH:MM:SS or MM:SS
+		parts := strings.Split(etaStr, ":")
+		if len(parts) == 2 { // mm:ss
+			var m, s int
+			fmt.Sscanf(parts[0], "%d", &m)
+			fmt.Sscanf(parts[1], "%d", &s)
+			return m*60 + s
+		} else if len(parts) == 3 { // hh:mm:ss
+			var h, m, s int
+			fmt.Sscanf(parts[0], "%d", &h)
+			fmt.Sscanf(parts[1], "%d", &m)
+			fmt.Sscanf(parts[2], "%d", &s)
+			return h*3600 + m*60 + s
+		}
+		return -1
+	}
+	updateProgress := func(line string) {
+		if m := progressRe.FindStringSubmatch(line); len(m) == 4 {
+			pStr := strings.TrimSpace(m[1])
+			var val float64
+			fmt.Sscanf(pStr, "%f", &val)
+			speed := strings.TrimSpace(m[2])
+			etaSec := parseETA(strings.TrimSpace(m[3]))
+			if val >= 0 && val <= 100 {
+				status := StatusDownloading
+				if val > 97 {
+					status = StatusProcessing
+				}
+				d.updateJobStatus(job.ID, status, int(val), "")
+				d.updateJobProgress(job.ID, int(val), speed, etaSec)
+			}
+			return
+		}
+		if m := simplePercentRe.FindStringSubmatch(line); len(m) == 2 { // fallback
+			pStr := strings.TrimSpace(m[1])
+			var val float64
+			fmt.Sscanf(pStr, "%f", &val)
+			if val >= 0 && val <= 100 {
+				status := StatusDownloading
+				if val > 97 {
+					status = StatusProcessing
+				}
+				d.updateJobStatus(job.ID, status, int(val), "")
+			}
+		}
+	}
+
+	// Scan stdout & stderr concurrently
+	var wg sync.WaitGroup
+	scan := func(r io.Reader) {
+		defer wg.Done()
+		s := bufio.NewScanner(r)
+		for s.Scan() {
+			line := s.Text()
+			updateProgress(line)
+		}
+	}
+	wg.Add(2)
+	go scan(stdout)
+	go scan(stderr)
+	wg.Wait()
+
+	// Wait for command completion
+	if err := cmd.Wait(); err != nil {
+		// Capture possible error details
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			d.updateJobStatus(job.ID, StatusFailed, job.Progress, fmt.Sprintf("yt-dlp error: %s", strings.TrimSpace(string(exitErr.Stderr))))
+		} else {
+			d.updateJobStatus(job.ID, StatusFailed, job.Progress, fmt.Sprintf("yt-dlp failed: %v", err))
+		}
+		return
+	}
+
+	// Determine actual file path
 	actualPath := strings.Replace(outputPath, ".%(ext)s", "."+d.config.Downloader.AudioFormat, 1)
 	job.OutputPath = actualPath
 
+	// Mark complete
 	d.updateJobStatus(job.ID, StatusCompleted, 100, "")
 	now := time.Now()
 	job.CompletedAt = &now
+
+	// Ingest into library
+	if d.db != nil && d.extractor != nil {
+		track, err := d.extractor.ExtractFromFile(actualPath, 0)
+		if err == nil {
+			_, _ = d.db.InsertTrack(track)
+		}
+	}
 }
 
 // VideoMetadata represents metadata extracted from a video
@@ -204,6 +326,28 @@ func (d *Downloader) updateJobStatus(jobID string, status DownloadStatus, progre
 		job.Progress = progress
 		if errorMsg != "" {
 			job.Error = errorMsg
+		}
+		// Persist if DB available
+		if d.db != nil {
+			_ = d.db.UpsertDownloadJob(job.ID, job.URL, job.Title, job.Artist, string(job.Status), job.Progress, job.Error, job.OutputPath, job.Speed, job.ETASeconds, &job.CreatedAt, job.CompletedAt)
+		}
+	}
+}
+
+// updateJobProgress updates progress plus optional speed/eta
+func (d *Downloader) updateJobProgress(jobID string, progress int, speed string, etaSeconds int) {
+	d.jobsMux.Lock()
+	defer d.jobsMux.Unlock()
+	if job, exists := d.jobs[jobID]; exists {
+		job.Progress = progress
+		if speed != "" {
+			job.Speed = speed
+		}
+		if etaSeconds >= 0 {
+			job.ETASeconds = etaSeconds
+		}
+		if d.db != nil {
+			_ = d.db.UpsertDownloadJob(job.ID, job.URL, job.Title, job.Artist, string(job.Status), job.Progress, job.Error, job.OutputPath, job.Speed, job.ETASeconds, &job.CreatedAt, job.CompletedAt)
 		}
 	}
 }

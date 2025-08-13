@@ -77,6 +77,23 @@ func (db *Database) createTables() error {
 		PRIMARY KEY (playlist_id, track_id)
 	);`
 
+	// Create download_jobs table (for persistence of downloads)
+	downloadJobsTable := `
+	CREATE TABLE IF NOT EXISTS download_jobs (
+		id TEXT PRIMARY KEY,
+		url TEXT NOT NULL,
+		title TEXT,
+		artist TEXT,
+		status TEXT,
+		progress INTEGER,
+		error TEXT,
+		output_path TEXT,
+		speed TEXT,
+		eta_seconds INTEGER,
+		created_at DATETIME,
+		completed_at DATETIME
+	);`
+
 	// Create indices for better performance
 	indices := []string{
 		"CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);",
@@ -85,7 +102,7 @@ func (db *Database) createTables() error {
 		"CREATE INDEX IF NOT EXISTS idx_playlist_tracks_position ON playlist_tracks(playlist_id, position);",
 	}
 
-	tables := []string{tracksTable, playlistsTable, playlistTracksTable}
+	tables := []string{tracksTable, playlistsTable, playlistTracksTable, downloadJobsTable}
 	for _, table := range tables {
 		if _, err := db.conn.Exec(table); err != nil {
 			return err
@@ -406,4 +423,53 @@ func (db *Database) Close() error {
 		return db.conn.Close()
 	}
 	return nil
+}
+
+// ===== Download Jobs Persistence =====
+
+// UpsertDownloadJob inserts or updates a download job record
+func (db *Database) UpsertDownloadJob(jobID, url, title, artist, status string, progress int, errMsg, outputPath, speed string, etaSeconds int, createdAt, completedAt *time.Time) error {
+	_, err := db.conn.Exec(`
+		INSERT INTO download_jobs (id, url, title, artist, status, progress, error, output_path, speed, eta_seconds, created_at, completed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			url=excluded.url,
+			title=excluded.title,
+			artist=excluded.artist,
+			status=excluded.status,
+			progress=excluded.progress,
+			error=excluded.error,
+			output_path=excluded.output_path,
+			speed=excluded.speed,
+			eta_seconds=excluded.eta_seconds,
+			completed_at=excluded.completed_at
+	`, jobID, url, title, artist, status, progress, errMsg, outputPath, speed, etaSeconds, createdAt, completedAt)
+	return err
+}
+
+// GetAllDownloadJobs returns all persisted download jobs
+func (db *Database) GetAllDownloadJobs() ([]map[string]interface{}, error) {
+	rows, err := db.conn.Query(`SELECT id, url, title, artist, status, progress, error, output_path, speed, eta_seconds, created_at, completed_at FROM download_jobs ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []map[string]interface{}
+	for rows.Next() {
+		var id, url, title, artist, status, errorMsg, outputPath, speed sql.NullString
+		var progress sql.NullInt64
+		var eta sql.NullInt64
+		var createdAt, completedAt sql.NullString
+		if err := rows.Scan(&id, &url, &title, &artist, &status, &progress, &errorMsg, &outputPath, &speed, &eta, &createdAt, &completedAt); err != nil {
+			return nil, err
+		}
+		job := map[string]interface{}{
+			"id": id.String, "url": url.String, "title": title.String, "artist": artist.String,
+			"status": status.String, "progress": int(progress.Int64), "error": errorMsg.String,
+			"output_path": outputPath.String, "speed": speed.String, "eta_seconds": int(eta.Int64),
+			"created_at": createdAt.String, "completed_at": completedAt.String,
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
 }
