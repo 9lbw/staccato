@@ -31,7 +31,6 @@ func (ms *MusicServer) handleAlbumArt(w http.ResponseWriter, r *http.Request) {
 	contentType := ms.extractor.GetAlbumArtMimeType(artData)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
-	ms.setCORSHeaders(w)
 
 	// Serve the image data
 	w.Write(artData)

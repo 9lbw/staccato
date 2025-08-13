@@ -19,17 +19,9 @@ func (ms *MusicServer) handleHome(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(ms.config.Server.StaticDir, "index.html"))
 }
 
-// setCORSHeaders sets permissive CORS headers when enabled (simple global *).
-func (ms *MusicServer) setCORSHeaders(w http.ResponseWriter) {
-	if ms.config.Server.EnableCORS {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-	}
-}
-
 // handleGetTracks returns tracks optionally filtered (search) or sorted.
 func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w) // Use config-based CORS
 
 	// Check parameters
 	searchQuery := r.URL.Query().Get("search")
@@ -56,7 +48,6 @@ func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 // handleGetTrackCount responds with a JSON count of all tracks.
 func (ms *MusicServer) handleGetTrackCount(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	tracks, err := ms.db.GetAllTracks()
 	if err != nil {
@@ -111,7 +102,7 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", ms.extractor.GetContentType(track.FilePath))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
 	w.Header().Set("Accept-Ranges", "bytes")
-	ms.setCORSHeaders(w)
+	// CORS header applied by middleware if enabled
 
 	// Handle range requests for seeking support
 	rangeHeader := r.Header.Get("Range")

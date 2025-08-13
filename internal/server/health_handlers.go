@@ -20,7 +20,6 @@ type HealthStatus struct {
 // handleHealthCheck returns basic liveness + dependency checks.
 func (ms *MusicServer) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	health := &HealthStatus{
 		Status:    "healthy",

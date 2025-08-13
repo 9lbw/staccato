@@ -238,6 +238,7 @@ func (ms *MusicServer) setupRoutes() http.Handler {
 
 	// Apply middleware chain (order: panic recovery -> logging)
 	handler := ms.panicRecoveryMiddleware(mux)
+	handler = ms.corsMiddleware(handler)
 	handler = ms.requestLoggingMiddleware(handler)
 	return handler
 }

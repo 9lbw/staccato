@@ -15,7 +15,6 @@ import (
 // handleGetPlaylists returns all playlists (with track counts) as JSON.
 func (ms *MusicServer) handleGetPlaylists(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	playlists, err := ms.db.GetAllPlaylists()
 	if err != nil {
@@ -34,7 +33,6 @@ func (ms *MusicServer) handleCreatePlaylist(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	var req struct {
 		Name        string `json:"name"`
@@ -79,7 +77,6 @@ func (ms *MusicServer) handleGetPlaylistTracks(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	tracks, err := ms.db.GetPlaylistTracks(playlistID)
 	if err != nil {
@@ -125,7 +122,6 @@ func (ms *MusicServer) handleAddTrackToPlaylist(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Track added to playlist"})
 }
 
@@ -161,7 +157,6 @@ func (ms *MusicServer) handleRemoveTrackFromPlaylist(w http.ResponseWriter, r *h
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Track removed from playlist"})
 }
 
@@ -191,7 +186,6 @@ func (ms *MusicServer) handleDeletePlaylist(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Playlist deleted"})
 }
 
@@ -277,6 +271,6 @@ func (ms *MusicServer) handleUpdatePlaylist(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
+	// CORS headers now applied globally via middleware.
 	json.NewEncoder(w).Encode(map[string]string{"message": "Playlist updated successfully"})
 }

@@ -16,7 +16,6 @@ func (ms *MusicServer) handleDownloadMusic(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	// Check if downloader is available
 	if ms.downloader == nil {
@@ -76,7 +75,6 @@ func (ms *MusicServer) handleDownloadMusic(w http.ResponseWriter, r *http.Reques
 // handleGetDownloads returns all jobs or one by ID (path /api/downloads/{id}).
 func (ms *MusicServer) handleGetDownloads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	// Check if downloader is available
 	if ms.downloader == nil {
@@ -113,7 +111,6 @@ func (ms *MusicServer) handleCleanupDownloads(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 	if ms.downloader == nil {
 		http.Error(w, "Downloader not available", http.StatusServiceUnavailable)
 		return
@@ -138,7 +135,6 @@ func (ms *MusicServer) handleValidateURL(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	ms.setCORSHeaders(w)
 
 	// Check if downloader is available
 	if ms.downloader == nil {

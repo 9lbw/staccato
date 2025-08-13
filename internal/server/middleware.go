@@ -60,6 +60,19 @@ func (ms *MusicServer) requestLoggingMiddleware(next http.Handler) http.Handler 
 	})
 }
 
+// corsMiddleware injects CORS headers if enabled in configuration. Keeps existing
+// behavior (only Access-Control-Allow-Origin: *). Does not introduce preflight handling
+// to avoid functional changes.
+func (ms *MusicServer) corsMiddleware(next http.Handler) http.Handler {
+	if !ms.config.Server.EnableCORS {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // shouldLogRequest filters noisy paths from request logging output.
 func (ms *MusicServer) shouldLogRequest(path string) bool {
 	// Skip logging for common static assets and frequent endpoints
