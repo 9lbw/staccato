@@ -31,6 +31,7 @@ type MusicServer struct {
 	downloader   *downloader.Downloader
 	ngrokService *ngrok.Service
 	server       *http.Server
+	handler      http.Handler // root HTTP handler (router + middleware chain)
 	shutdownCh   chan struct{}
 }
 
@@ -127,8 +128,8 @@ func (ms *MusicServer) Start() {
 		}
 	}
 
-	// Set up routes
-	ms.setupRoutes()
+	// Set up routes (build handler chain)
+	ms.handler = ms.setupRoutes()
 
 	// Get track count from database
 	tracks, err := ms.db.GetAllTracks()
@@ -160,7 +161,7 @@ func (ms *MusicServer) Start() {
 		ReadTimeout:  time.Duration(ms.config.Server.ReadTimeout) * time.Second,
 		WriteTimeout: time.Duration(ms.config.Server.WriteTimeout) * time.Second,
 		IdleTimeout:  time.Duration(ms.config.Server.IdleTimeout) * time.Second,
-		Handler:      http.DefaultServeMux,
+		Handler:      ms.handler,
 	}
 
 	// Start server in a goroutine
@@ -181,7 +182,7 @@ func (ms *MusicServer) Start() {
 	}
 }
 
-func (ms *MusicServer) setupRoutes() {
+func (ms *MusicServer) setupRoutes() http.Handler {
 	// Create a new ServeMux
 	mux := http.NewServeMux()
 
@@ -224,12 +225,10 @@ func (ms *MusicServer) setupRoutes() {
 		}
 	})
 
-	// Apply middleware chain
+	// Apply middleware chain (order: panic recovery -> logging)
 	handler := ms.panicRecoveryMiddleware(mux)
 	handler = ms.requestLoggingMiddleware(handler)
-
-	// Set the handler for the default ServeMux (used by http.Server)
-	http.Handle("/", handler)
+	return handler
 }
 
 // Shutdown gracefully shuts down the music server
