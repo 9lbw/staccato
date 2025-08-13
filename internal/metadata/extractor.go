@@ -2,6 +2,8 @@ package metadata
 
 import (
 	"crypto/md5"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +15,8 @@ import (
 	"staccato/pkg/models"
 
 	"github.com/dhowden/tag"
+	"github.com/go-audio/wav"
+	"github.com/mewkiz/flac"
 	"github.com/sirupsen/logrus"
 	"github.com/tcolgate/mp3"
 )
@@ -145,106 +149,189 @@ func (e *Extractor) ExtractFromFile(filePath string, id int) (models.Track, erro
 // calculateDuration calculates the duration of an audio file in seconds
 func (e *Extractor) calculateDuration(filePath string) (int, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))
-
 	switch ext {
 	case ".mp3":
-		return e.calculateMP3Duration(filePath)
+		return e.durationMP3(filePath)
 	case ".flac":
-		return e.calculateFLACDuration(filePath)
+		return e.durationFLAC(filePath)
 	case ".wav":
-		return e.calculateWAVDuration(filePath)
+		return e.durationWAV(filePath)
 	case ".m4a":
-		return e.calculateM4ADuration(filePath)
+		return e.durationM4A(filePath)
 	default:
-		return 0, fmt.Errorf("unsupported format for duration calculation: %s", ext)
+		return 0, fmt.Errorf("unsupported format: %s", ext)
 	}
 }
 
-// calculateMP3Duration calculates duration for MP3 files
-func (e *Extractor) calculateMP3Duration(filePath string) (int, error) {
-	file, err := os.Open(filePath)
+// MP3 duration using frame decoding; fallback to average bitrate estimation only if frames fail entirely.
+func (e *Extractor) durationMP3(path string) (int, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
-
-	decoder := mp3.NewDecoder(file)
-	var duration time.Duration
+	defer f.Close()
+	dec := mp3.NewDecoder(f)
+	var total time.Duration
 	var skipped int
-
+	frames := 0
 	for {
-		frame := mp3.Frame{}
-		err := decoder.Decode(&frame, &skipped)
-		if err != nil {
-			if err == io.EOF {
+		var fr mp3.Frame
+		if err := dec.Decode(&fr, &skipped); err != nil {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			// If we can't decode properly, try to estimate from file size
-			return e.estimateDurationFromSize(filePath, 128) // Assume 128kbps
+			if frames == 0 { // could not decode any frame
+				return e.estimateFromFileSize(path, 192000) // assume 192 kbps = 192000 bps
+			}
+			break // partial decode; use what we have
 		}
-		duration += frame.Duration()
+		total += fr.Duration()
+		frames++
 	}
-
-	return int(duration.Seconds()), nil
+	return int(total.Seconds()), nil
 }
 
-// calculateFLACDuration calculates duration for FLAC files using metadata
-func (e *Extractor) calculateFLACDuration(filePath string) (int, error) {
-	// For FLAC files, fall back to size estimation
-	return e.estimateDurationFromSize(filePath, 1000) // Assume ~1000kbps for FLAC
-}
-
-// calculateWAVDuration calculates duration for WAV files
-func (e *Extractor) calculateWAVDuration(filePath string) (int, error) {
-	file, err := os.Open(filePath)
+// FLAC duration via STREAMINFO metadata block
+func (e *Extractor) durationFLAC(path string) (int, error) {
+	stream, err := flac.ParseFile(path)
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
-
-	// Read WAV header to get sample rate and data size
-	header := make([]byte, 44)
-	_, err = file.Read(header)
-	if err != nil {
-		return e.estimateDurationFromSize(filePath, 1411) // CD quality estimation
+	si := stream.Info
+	if si.NSamples > 0 && si.SampleRate > 0 {
+		secs := float64(si.NSamples) / float64(si.SampleRate)
+		return int(secs + 0.5), nil
 	}
-
-	// Basic WAV header parsing
-	if string(header[0:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
-		return e.estimateDurationFromSize(filePath, 1411)
-	}
-
-	return e.estimateDurationFromSize(filePath, 1411)
+	return 0, fmt.Errorf("flac stream missing sample info")
 }
 
-// calculateM4ADuration calculates duration for M4A files
-func (e *Extractor) calculateM4ADuration(filePath string) (int, error) {
-	return e.estimateDurationFromSize(filePath, 256) // Assume 256kbps for M4A
-}
-
-// estimateDurationFromSize estimates duration based on file size and bitrate
-func (e *Extractor) estimateDurationFromSize(filePath string, estimatedBitrate int) (int, error) {
-	file, err := os.Open(filePath)
+// WAV duration using go-audio/wav to read header
+func (e *Extractor) durationWAV(path string) (int, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
-
-	stat, err := file.Stat()
+	defer f.Close()
+	dec := wav.NewDecoder(f)
+	if !dec.IsValidFile() {
+		return 0, fmt.Errorf("invalid wav file")
+	}
+	if dec.SampleRate == 0 || dec.BitDepth == 0 || dec.NumChans == 0 {
+		return 0, fmt.Errorf("invalid wav header")
+	}
+	// Approximate using file size; full sample count may require decoding all samples.
+	st, err := f.Stat()
 	if err != nil {
 		return 0, err
 	}
-
-	// Calculate duration: (file size in bits) / (bitrate in bits per second)
-	fileSizeBits := stat.Size() * 8
-	bitratePerSecond := int64(estimatedBitrate * 1000) // Convert kbps to bps
-
-	if bitratePerSecond == 0 {
-		return 0, fmt.Errorf("invalid bitrate for estimation")
+	headerSize := int64(44)
+	pcmBytes := st.Size() - headerSize
+	if pcmBytes < 0 {
+		pcmBytes = 0
 	}
+	bytesPerSampleFrame := int64(dec.BitDepth/8) * int64(dec.NumChans)
+	if bytesPerSampleFrame <= 0 {
+		return 0, fmt.Errorf("invalid sample frame size")
+	}
+	sampleFrames := pcmBytes / bytesPerSampleFrame
+	secs := float64(sampleFrames) / float64(dec.SampleRate)
+	return int(secs + 0.5), nil
+}
 
-	durationSeconds := fileSizeBits / bitratePerSecond
-	return int(durationSeconds), nil
+// M4A (AAC in MP4) minimal duration parsing: read 'mvhd' timescale & duration.
+// Lightweight manual atom scan to avoid pulling large dep. Best-effort.
+func (e *Extractor) durationM4A(path string) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	for {
+		head := make([]byte, 8)
+		if _, err := io.ReadFull(f, head); err != nil {
+			return 0, err
+		}
+		size := binary.BigEndian.Uint32(head[0:4])
+		atom := string(head[4:8])
+		if size < 8 {
+			return 0, fmt.Errorf("invalid atom size")
+		}
+		if atom == "moov" {
+			// scan inside moov for mvhd
+			limit := int64(size) - 8
+			// position inside moov (not used)
+			for read := int64(0); read < limit; {
+				subHead := make([]byte, 8)
+				if _, err := io.ReadFull(f, subHead); err != nil {
+					return 0, err
+				}
+				subSize := binary.BigEndian.Uint32(subHead[0:4])
+				subAtom := string(subHead[4:8])
+				if subAtom == "mvhd" {
+					version := make([]byte, 1)
+					if _, err := io.ReadFull(f, version); err != nil {
+						return 0, err
+					}
+					var skip int64
+					if version[0] == 1 { // 64-bit
+						skip = 3 + 8 + 8 // flags + creation + mod times (64-bit)
+					} else {
+						skip = 3 + 4 + 4 // flags + times (32-bit)
+					}
+					if _, err := f.Seek(skip, io.SeekCurrent); err != nil {
+						return 0, err
+					}
+					tsBuf := make([]byte, 4)
+					if _, err := io.ReadFull(f, tsBuf); err != nil {
+						return 0, err
+					}
+					timescale := binary.BigEndian.Uint32(tsBuf)
+					durBuf := make([]byte, 4)
+					if _, err := io.ReadFull(f, durBuf); err != nil {
+						return 0, err
+					}
+					durUnits := binary.BigEndian.Uint32(durBuf)
+					if timescale == 0 {
+						return 0, fmt.Errorf("invalid timescale")
+					}
+					secs := float64(durUnits) / float64(timescale)
+					return int(secs + 0.5), nil
+				}
+				// skip remainder of sub atom
+				if subSize < 8 {
+					return 0, fmt.Errorf("invalid sub-atom size")
+				}
+				if _, err := f.Seek(int64(subSize)-8, io.SeekCurrent); err != nil {
+					return 0, err
+				}
+				read += int64(subSize)
+			}
+			break
+		}
+		// skip rest of atom
+		if _, err := f.Seek(int64(size)-8, io.SeekCurrent); err != nil {
+			return 0, err
+		}
+	}
+	return 0, fmt.Errorf("mvhd atom not found")
+}
+
+// estimateFromFileSize provides last-resort estimation if parsing fails.
+func (e *Extractor) estimateFromFileSize(path string, bitrate int) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if bitrate <= 0 {
+		return 0, fmt.Errorf("invalid bitrate")
+	}
+	dur := (st.Size() * 8) / int64(bitrate)
+	return int(dur), nil
 }
 
 // extractAlbumArt extracts album art from metadata or looks for cover files
