@@ -8,7 +8,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config represents the application configuration
+// Config represents the application configuration loaded from TOML.
 type Config struct {
 	Server     ServerConfig     `toml:"server"`
 	Database   DatabaseConfig   `toml:"database"`
@@ -18,7 +18,7 @@ type Config struct {
 	Ngrok      NgrokConfig      `toml:"ngrok"`
 }
 
-// ServerConfig contains server-related configuration
+// ServerConfig contains server-related configuration.
 type ServerConfig struct {
 	Port         string `toml:"port"`
 	Host         string `toml:"host"`
@@ -29,13 +29,13 @@ type ServerConfig struct {
 	IdleTimeout  int    `toml:"idle_timeout_seconds"`
 }
 
-// DatabaseConfig contains database-related configuration
+// DatabaseConfig contains database-related configuration.
 type DatabaseConfig struct {
 	Path           string `toml:"path"`
 	MaxConnections int    `toml:"max_connections"`
 }
 
-// MusicConfig contains music library configuration
+// MusicConfig contains music library configuration.
 type MusicConfig struct {
 	LibraryPath      string   `toml:"library_path"`
 	SupportedFormats []string `toml:"supported_formats"`
@@ -43,7 +43,7 @@ type MusicConfig struct {
 	ScanOnStartup    bool     `toml:"scan_on_startup"`
 }
 
-// LoggingConfig contains logging configuration
+// LoggingConfig contains logging configuration.
 type LoggingConfig struct {
 	Level          string `toml:"level"`
 	Format         string `toml:"format"`
@@ -51,7 +51,7 @@ type LoggingConfig struct {
 	RequestLogging bool   `toml:"request_logging"`
 }
 
-// DownloaderConfig contains music download configuration
+// DownloaderConfig contains music download configuration.
 type DownloaderConfig struct {
 	Enabled       bool   `toml:"enabled"`
 	YtDlpPath     string `toml:"yt_dlp_path"`
@@ -60,7 +60,7 @@ type DownloaderConfig struct {
 	AudioQuality  string `toml:"audio_quality"`
 }
 
-// NgrokConfig contains ngrok tunnel configuration
+// NgrokConfig contains ngrok tunnel configuration.
 type NgrokConfig struct {
 	Enabled      bool   `toml:"enabled"`
 	AuthToken    string `toml:"auth_token"`
@@ -70,7 +70,7 @@ type NgrokConfig struct {
 	AuthProvider string `toml:"auth_provider"`
 }
 
-// DefaultConfig returns a configuration with sensible defaults
+// DefaultConfig returns a configuration populated with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -116,7 +116,8 @@ func DefaultConfig() *Config {
 	}
 }
 
-// LoadConfig loads configuration from a TOML file
+// LoadConfig loads configuration from a TOML file or creates a new file with
+// defaults if one does not yet exist. It validates resulting values.
 func LoadConfig(configPath string) (*Config, error) {
 	// Start with defaults
 	cfg := DefaultConfig()
@@ -144,7 +145,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// SaveToFile saves the configuration to a TOML file
+// SaveToFile saves the configuration to a TOML file (overwriting existing).
 func (c *Config) SaveToFile(configPath string) error {
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(configPath)
@@ -178,7 +179,7 @@ func (c *Config) SaveToFile(configPath string) error {
 	return nil
 }
 
-// Validate checks if the configuration is valid
+// Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
 	// Validate server config
 	if c.Server.Port == "" {
@@ -231,12 +232,12 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// GetAddress returns the full server address
+// GetAddress returns the host:port string for listening.
 func (c *Config) GetAddress() string {
 	return c.Server.Host + ":" + c.Server.Port
 }
 
-// IsFormatSupported checks if an audio format is supported
+// IsFormatSupported checks if an audio format is supported (case-sensitive extension match).
 func (c *Config) IsFormatSupported(format string) bool {
 	for _, supported := range c.Music.SupportedFormats {
 		if supported == format {

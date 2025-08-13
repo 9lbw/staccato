@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// HealthStatus represents the health status of the server
+// HealthStatus represents operational status for the /health endpoint.
 type HealthStatus struct {
 	Status    string                 `json:"status"`
 	Timestamp time.Time              `json:"timestamp"`
@@ -17,7 +17,7 @@ type HealthStatus struct {
 	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
-// handleHealthCheck provides a health check endpoint
+// handleHealthCheck returns basic liveness + dependency checks.
 func (ms *MusicServer) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ms.setCORSHeaders(w)
@@ -60,14 +60,14 @@ func (ms *MusicServer) handleHealthCheck(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(health)
 }
 
-// checkDatabaseHealth performs a simple database health check
+// checkDatabaseHealth performs a trivial query to validate DB access.
 func (ms *MusicServer) checkDatabaseHealth() error {
 	// Try a simple query to check database connectivity
 	_, err := ms.db.GetAllTracks()
 	return err
 }
 
-// checkStorageHealth checks if the music storage is accessible
+// checkStorageHealth validates storage accessibility (placeholder for future enhancements).
 func (ms *MusicServer) checkStorageHealth() error {
 	// Check if music library path exists and is accessible
 	_, err := ms.db.GetAllTracks()

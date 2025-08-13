@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// handleDownloadMusic handles music download requests
+// handleDownloadMusic starts a new download job (POST json: url, optional title/artist).
 func (ms *MusicServer) handleDownloadMusic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -73,7 +73,7 @@ func (ms *MusicServer) handleDownloadMusic(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleGetDownloads handles requests to get download status
+// handleGetDownloads returns all jobs or one by ID (path /api/downloads/{id}).
 func (ms *MusicServer) handleGetDownloads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ms.setCORSHeaders(w)
@@ -106,7 +106,7 @@ func (ms *MusicServer) handleGetDownloads(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// handleCleanupDownloads removes completed/failed jobs older than ?age= (minutes, default 60)
+// handleCleanupDownloads removes completed/failed jobs older than ?age= minutes (default 60; minimum 1).
 func (ms *MusicServer) handleCleanupDownloads(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -130,7 +130,7 @@ func (ms *MusicServer) handleCleanupDownloads(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(map[string]any{"message": "cleanup complete", "age_minutes": ageMinutes})
 }
 
-// handleValidateURL handles URL validation requests
+// handleValidateURL validates a prospective download URL via yt-dlp simulation.
 func (ms *MusicServer) handleValidateURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

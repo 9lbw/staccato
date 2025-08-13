@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// handleGetPlaylists handles the GET request for playlists
+// handleGetPlaylists returns all playlists (with track counts) as JSON.
 func (ms *MusicServer) handleGetPlaylists(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ms.setCORSHeaders(w)
@@ -26,7 +26,7 @@ func (ms *MusicServer) handleGetPlaylists(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(playlists)
 }
 
-// handleCreatePlaylist handles playlist creation
+// handleCreatePlaylist creates a new playlist (POST json name/description).
 func (ms *MusicServer) handleCreatePlaylist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -64,7 +64,7 @@ func (ms *MusicServer) handleCreatePlaylist(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleGetPlaylistTracks handles getting tracks from a playlist
+// handleGetPlaylistTracks returns tracks contained in the specified playlist.
 func (ms *MusicServer) handleGetPlaylistTracks(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 4 {
@@ -90,7 +90,7 @@ func (ms *MusicServer) handleGetPlaylistTracks(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(tracks)
 }
 
-// handleAddTrackToPlaylist handles adding a track to a playlist
+// handleAddTrackToPlaylist appends a track to a playlist (POST json trackId).
 func (ms *MusicServer) handleAddTrackToPlaylist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -129,7 +129,7 @@ func (ms *MusicServer) handleAddTrackToPlaylist(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(map[string]string{"message": "Track added to playlist"})
 }
 
-// handleRemoveTrackFromPlaylist handles removing a track from a playlist
+// handleRemoveTrackFromPlaylist removes track from playlist (DELETE route).
 func (ms *MusicServer) handleRemoveTrackFromPlaylist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "DELETE" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -165,7 +165,7 @@ func (ms *MusicServer) handleRemoveTrackFromPlaylist(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(map[string]string{"message": "Track removed from playlist"})
 }
 
-// handleDeletePlaylist handles deleting a playlist
+// handleDeletePlaylist deletes a playlist (DELETE).
 func (ms *MusicServer) handleDeletePlaylist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "DELETE" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -195,7 +195,7 @@ func (ms *MusicServer) handleDeletePlaylist(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]string{"message": "Playlist deleted"})
 }
 
-// handleUpdatePlaylist handles updating a playlist with multipart form data (including cover upload)
+// handleUpdatePlaylist updates playlist name/description and optional cover image (multipart PUT).
 func (ms *MusicServer) handleUpdatePlaylist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "PUT" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

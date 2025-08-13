@@ -31,7 +31,8 @@ const (
 	StatusFailed      DownloadStatus = "failed"
 )
 
-// DownloadJob represents a download job
+// DownloadJob represents a download job's current (possibly transient) state.
+// Fields are JSON tagged for direct API serialization.
 type DownloadJob struct {
 	ID          string         `json:"id"`
 	URL         string         `json:"url"`
@@ -47,7 +48,8 @@ type DownloadJob struct {
 	CompletedAt *time.Time     `json:"completed_at,omitempty"`
 }
 
-// Downloader handles music downloads from various sources
+// Downloader orchestrates concurrent yt-dlp based downloads, tracking progress
+// and (optionally) ingesting completed files into the library database.
 type Downloader struct {
 	config    *config.Config
 	jobs      map[string]*DownloadJob
@@ -58,7 +60,8 @@ type Downloader struct {
 	extractor *metadata.Extractor
 }
 
-// NewDownloader creates a new downloader instance
+// NewDownloader constructs a Downloader, validating presence of yt-dlp and
+// preparing internal state. Returns an error if yt-dlp cannot be located.
 func NewDownloader(cfg *config.Config) (*Downloader, error) {
 	d := &Downloader{
 		config: cfg,
@@ -79,13 +82,15 @@ func NewDownloader(cfg *config.Config) (*Downloader, error) {
 	return d, nil
 }
 
-// AttachIngest enables automatic library ingestion after successful downloads.
+// AttachIngest wires automatic metadata extraction & DB insertion for
+// successfully downloaded files. Can be called after construction.
 func (d *Downloader) AttachIngest(db *database.Database, extractor *metadata.Extractor) {
 	d.db = db
 	d.extractor = extractor
 }
 
-// checkYtDlp verifies that yt-dlp is installed and accessible
+// checkYtDlp attempts to discover an executable yt-dlp binary from a small
+// set of common names/locations. The first successful path is cached.
 func (d *Downloader) checkYtDlp() error {
 	// Try different possible locations for yt-dlp
 	possiblePaths := []string{"yt-dlp", "yt-dlp.exe", "./yt-dlp", "./yt-dlp.exe"}
@@ -100,7 +105,8 @@ func (d *Downloader) checkYtDlp() error {
 	return fmt.Errorf("yt-dlp not found in PATH. Please install yt-dlp")
 }
 
-// DownloadFromURL starts a download from a given URL
+// DownloadFromURL schedules a new download job. It returns immediately with
+// the created job whose status will transition asynchronously.
 func (d *Downloader) DownloadFromURL(url, customTitle, customArtist string) (*DownloadJob, error) {
 	job := &DownloadJob{
 		ID:        uuid.New().String(),
@@ -127,7 +133,8 @@ func (d *Downloader) DownloadFromURL(url, customTitle, customArtist string) (*Do
 	return job, nil
 }
 
-// processDownload handles the actual download process
+// processDownload executes the yt-dlp command pipeline for a single job and
+// updates status progressively. Must run in its own goroutine.
 func (d *Downloader) processDownload(job *DownloadJob) {
 	d.updateJobStatus(job.ID, StatusDownloading, 0, "")
 
@@ -284,7 +291,8 @@ type VideoMetadata struct {
 	Duration float64 `json:"duration"`
 }
 
-// getMetadata extracts metadata from a URL without downloading
+// getMetadata performs a metadata-only probe via yt-dlp (--dump-json) to
+// pre-populate job fields before the actual download.
 func (d *Downloader) getMetadata(url string) (*VideoMetadata, error) {
 	cmd := exec.Command(d.ytDlpPath,
 		"--dump-json",
@@ -305,7 +313,8 @@ func (d *Downloader) getMetadata(url string) (*VideoMetadata, error) {
 	return &metadata, nil
 }
 
-// sanitizeFilename removes invalid characters from filenames
+// sanitizeFilename removes characters disallowed or awkward for typical
+// filesystems, producing a safe base name.
 func (d *Downloader) sanitizeFilename(filename string) string {
 	// Replace invalid characters with underscores
 	invalid := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
@@ -316,7 +325,8 @@ func (d *Downloader) sanitizeFilename(filename string) string {
 	return strings.TrimSpace(result)
 }
 
-// updateJobStatus updates the status of a download job
+// updateJobStatus centralizes status mutation and persistence (if DB attached).
+// It is concurrency-safe.
 func (d *Downloader) updateJobStatus(jobID string, status DownloadStatus, progress int, errorMsg string) {
 	d.jobsMux.Lock()
 	defer d.jobsMux.Unlock()
@@ -334,7 +344,8 @@ func (d *Downloader) updateJobStatus(jobID string, status DownloadStatus, progre
 	}
 }
 
-// updateJobProgress updates progress plus optional speed/eta
+// updateJobProgress updates frequently changing progress fields without
+// altering textual error. Keeps DB row in sync.
 func (d *Downloader) updateJobProgress(jobID string, progress int, speed string, etaSeconds int) {
 	d.jobsMux.Lock()
 	defer d.jobsMux.Unlock()
@@ -352,7 +363,8 @@ func (d *Downloader) updateJobProgress(jobID string, progress int, speed string,
 	}
 }
 
-// GetJob returns a download job by ID
+// GetJob returns a snapshot pointer of the job (callers must treat it as
+// read-only unless additional locking is done).
 func (d *Downloader) GetJob(jobID string) (*DownloadJob, bool) {
 	d.jobsMux.RLock()
 	defer d.jobsMux.RUnlock()
@@ -361,7 +373,7 @@ func (d *Downloader) GetJob(jobID string) (*DownloadJob, bool) {
 	return job, exists
 }
 
-// GetAllJobs returns all download jobs
+// GetAllJobs returns shallow copies of in-memory job pointers for inspection.
 func (d *Downloader) GetAllJobs() []*DownloadJob {
 	d.jobsMux.RLock()
 	defer d.jobsMux.RUnlock()
@@ -373,7 +385,8 @@ func (d *Downloader) GetAllJobs() []*DownloadJob {
 	return jobs
 }
 
-// CleanupCompletedJobs removes completed jobs older than specified duration
+// CleanupCompletedJobs removes terminal state jobs older than maxAge to bound
+// memory usage of the in-memory job map.
 func (d *Downloader) CleanupCompletedJobs(maxAge time.Duration) {
 	d.jobsMux.Lock()
 	defer d.jobsMux.Unlock()
@@ -388,7 +401,8 @@ func (d *Downloader) CleanupCompletedJobs(maxAge time.Duration) {
 	}
 }
 
-// ValidateURL checks if a URL is supported for downloading
+// ValidateURL performs a light yt-dlp simulation to confirm basic support for
+// the provided URL.
 func (d *Downloader) ValidateURL(url string) error {
 	// Basic URL validation
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {

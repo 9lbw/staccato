@@ -22,7 +22,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// MusicServer represents the main music streaming server
+// MusicServer encapsulates application state and HTTP handling for the music
+// service including DB access, metadata extraction, optional downloader,
+// optional ngrok tunneling, and filesystem watching.
 type MusicServer struct {
 	db           *database.Database
 	config       *config.Config
@@ -35,7 +37,8 @@ type MusicServer struct {
 	shutdownCh   chan struct{}
 }
 
-// NewMusicServer creates a new music server instance
+// NewMusicServer constructs a MusicServer with optional components (downloader,
+// ngrok). Missing optional components degrade functionality gracefully.
 func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, error) {
 	// Create downloader
 	dl, err := downloader.NewDownloader(cfg)
@@ -68,7 +71,8 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 	return server, nil
 }
 
-// ScanMusicLibrary scans the music directory and adds tracks to the database
+// ScanMusicLibrary walks the configured music directory ingesting supported
+// audio files into the database. Concurrency is sized to runtime.NumCPU.
 func (ms *MusicServer) ScanMusicLibrary() error {
 	if !ms.config.Music.ScanOnStartup {
 		log.Println("Skipping library scan (disabled in config)")
@@ -124,7 +128,8 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 	return walkErr
 }
 
-// Start starts the music server with graceful shutdown support
+// Start begins serving HTTP requests and (optionally) establishes an ngrok
+// tunnel. It blocks until a shutdown signal is received or a fatal error.
 func (ms *MusicServer) Start() {
 	// Start file watcher if enabled
 	if ms.config.Music.WatchForChanges {
@@ -237,7 +242,8 @@ func (ms *MusicServer) setupRoutes() http.Handler {
 	return handler
 }
 
-// Shutdown gracefully shuts down the music server
+// Shutdown gracefully stops all server components (HTTP listener, watcher,
+// ngrok tunnel, database connection).
 func (ms *MusicServer) Shutdown() {
 	log.Println("Shutting down music server...")
 
@@ -286,7 +292,8 @@ func (ms *MusicServer) Shutdown() {
 	log.Println("Music server shutdown complete")
 }
 
-// RequestShutdown triggers a graceful shutdown from external code
+// RequestShutdown can be called from other goroutines to initiate graceful
+// shutdown (idempotent).
 func (ms *MusicServer) RequestShutdown() {
 	select {
 	case <-ms.shutdownCh:

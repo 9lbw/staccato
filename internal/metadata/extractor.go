@@ -21,7 +21,8 @@ import (
 	"github.com/tcolgate/mp3"
 )
 
-// Extractor handles metadata extraction from audio files
+// Extractor encapsulates logic for reading audio file metadata, duration and
+// (optionally) album artwork, supporting a configurable list of formats.
 type Extractor struct {
 	supportedFormats []string
 	logger           *logrus.Logger
@@ -29,7 +30,7 @@ type Extractor struct {
 	albumArtMux      sync.RWMutex      // Mutex for album art cache
 }
 
-// NewExtractor creates a new metadata extractor
+// NewExtractor constructs an Extractor for the given list of supported formats.
 func NewExtractor(supportedFormats []string) *Extractor {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
@@ -42,7 +43,9 @@ func NewExtractor(supportedFormats []string) *Extractor {
 	}
 }
 
-// ExtractFromFile extracts metadata from an audio file
+// ExtractFromFile gathers metadata and duration for a single audio file,
+// producing a models.Track. If tag extraction fails it falls back to the
+// filename and default placeholders. 'id' allows caller to supply existing ID.
 func (e *Extractor) ExtractFromFile(filePath string, id int) (models.Track, error) {
 	startTime := time.Now()
 
@@ -146,7 +149,7 @@ func (e *Extractor) ExtractFromFile(filePath string, id int) (models.Track, erro
 	}, nil
 }
 
-// calculateDuration calculates the duration of an audio file in seconds
+// calculateDuration dispatches per-format duration parsing.
 func (e *Extractor) calculateDuration(filePath string) (int, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	switch ext {
@@ -163,7 +166,8 @@ func (e *Extractor) calculateDuration(filePath string) (int, error) {
 	}
 }
 
-// MP3 duration using frame decoding; fallback to average bitrate estimation only if frames fail entirely.
+// durationMP3 attempts frame-by-frame decoding for accuracy; if no frames can
+// be decoded it falls back to file-size / assumed bitrate estimation.
 func (e *Extractor) durationMP3(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -191,7 +195,7 @@ func (e *Extractor) durationMP3(path string) (int, error) {
 	return int(total.Seconds()), nil
 }
 
-// FLAC duration via STREAMINFO metadata block
+// durationFLAC uses flac STREAMINFO block sample count & rate.
 func (e *Extractor) durationFLAC(path string) (int, error) {
 	stream, err := flac.ParseFile(path)
 	if err != nil {
@@ -205,7 +209,7 @@ func (e *Extractor) durationFLAC(path string) (int, error) {
 	return 0, fmt.Errorf("flac stream missing sample info")
 }
 
-// WAV duration using go-audio/wav to read header
+// durationWAV approximates duration from header info and file length.
 func (e *Extractor) durationWAV(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -238,8 +242,7 @@ func (e *Extractor) durationWAV(path string) (int, error) {
 	return int(secs + 0.5), nil
 }
 
-// M4A (AAC in MP4) minimal duration parsing: read 'mvhd' timescale & duration.
-// Lightweight manual atom scan to avoid pulling large dep. Best-effort.
+// durationM4A scans MP4 atoms minimally to read mvhd timescale/duration.
 func (e *Extractor) durationM4A(path string) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -316,7 +319,8 @@ func (e *Extractor) durationM4A(path string) (int, error) {
 	return 0, fmt.Errorf("mvhd atom not found")
 }
 
-// estimateFromFileSize provides last-resort estimation if parsing fails.
+// estimateFromFileSize performs a last-resort duration guess using an assumed
+// constant bitrate (bits per second).
 func (e *Extractor) estimateFromFileSize(path string, bitrate int) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -334,7 +338,8 @@ func (e *Extractor) estimateFromFileSize(path string, bitrate int) (int, error) 
 	return int(dur), nil
 }
 
-// extractAlbumArt extracts album art from metadata or looks for cover files
+// extractAlbumArt returns a content-hash ID (hex md5) for embedded artwork if
+// present, caching the binary data for later retrieval. Returns false if none.
 func (e *Extractor) extractAlbumArt(metadata tag.Metadata) (string, bool) {
 	// First try to extract embedded album art
 	if metadata != nil {
@@ -356,7 +361,7 @@ func (e *Extractor) extractAlbumArt(metadata tag.Metadata) (string, bool) {
 	return "", false
 }
 
-// GetAlbumArt retrieves cached album art by ID
+// GetAlbumArt fetches cached artwork bytes by ID.
 func (e *Extractor) GetAlbumArt(artID string) ([]byte, bool) {
 	// Thread-safe read
 	e.albumArtMux.RLock()
@@ -365,7 +370,7 @@ func (e *Extractor) GetAlbumArt(artID string) ([]byte, bool) {
 	return data, exists
 }
 
-// GetAlbumArtMimeType guesses MIME type from album art data
+// GetAlbumArtMimeType attempts a simple signature-based MIME inference.
 func (e *Extractor) GetAlbumArtMimeType(data []byte) string {
 	if len(data) < 4 {
 		return "application/octet-stream"
@@ -385,7 +390,7 @@ func (e *Extractor) GetAlbumArtMimeType(data []byte) string {
 	return "application/octet-stream"
 }
 
-// IsAudioFile checks if a file is a supported audio format
+// IsAudioFile returns true if the path extension is a supported format.
 func (e *Extractor) IsAudioFile(filePath string) bool {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	for _, format := range e.supportedFormats {
@@ -396,7 +401,7 @@ func (e *Extractor) IsAudioFile(filePath string) bool {
 	return false
 }
 
-// GetContentType returns the MIME type for an audio file
+// GetContentType maps known extensions to basic audio MIME types.
 func (e *Extractor) GetContentType(filePath string) string {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	switch ext {

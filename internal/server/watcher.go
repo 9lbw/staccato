@@ -10,7 +10,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// startFileWatcher starts monitoring the music directory for changes
+// startFileWatcher initializes fsnotify watcher for recursive music dir monitoring.
 func (ms *MusicServer) startFileWatcher() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -31,7 +31,7 @@ func (ms *MusicServer) startFileWatcher() error {
 	return nil
 }
 
-// addDirectoryToWatcher recursively adds directories to the file watcher
+// addDirectoryToWatcher recursively walks and adds subdirectories to watcher.
 func (ms *MusicServer) addDirectoryToWatcher(dir string) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -44,7 +44,7 @@ func (ms *MusicServer) addDirectoryToWatcher(dir string) error {
 	})
 }
 
-// watchFiles monitors file system events
+// watchFiles selects on watcher channels and dispatches events.
 func (ms *MusicServer) watchFiles() {
 	defer ms.watcher.Close()
 
@@ -65,7 +65,7 @@ func (ms *MusicServer) watchFiles() {
 	}
 }
 
-// handleFileEvent processes file system events
+// handleFileEvent applies filtering & delegates creation/removal actions.
 func (ms *MusicServer) handleFileEvent(event fsnotify.Event) {
 	// Ignore temporary files and hidden files
 	fileName := filepath.Base(event.Name)
@@ -96,7 +96,7 @@ func (ms *MusicServer) handleFileEvent(event fsnotify.Event) {
 	}
 }
 
-// handleNewFile processes newly added audio files
+// handleNewFile extracts metadata & inserts new track if unseen.
 func (ms *MusicServer) handleNewFile(filePath string) {
 	log.Printf("New audio file detected: %s", filePath)
 
@@ -127,7 +127,7 @@ func (ms *MusicServer) handleNewFile(filePath string) {
 	log.Printf("Added new track: %s - %s (ID: %d)", track.Artist, track.Title, id)
 }
 
-// handleRemovedFile processes removed audio files
+// handleRemovedFile removes track rows referencing deleted audio files.
 func (ms *MusicServer) handleRemovedFile(filePath string) {
 	log.Printf("Audio file removed: %s", filePath)
 
@@ -140,7 +140,7 @@ func (ms *MusicServer) handleRemovedFile(filePath string) {
 	log.Printf("Removed track from database: %s", filePath)
 }
 
-// stopFileWatcher stops the file watcher
+// stopFileWatcher closes the watcher (idempotent).
 func (ms *MusicServer) stopFileWatcher() {
 	if ms.watcher != nil {
 		ms.watcher.Close()

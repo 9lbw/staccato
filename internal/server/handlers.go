@@ -14,19 +14,19 @@ import (
 	"staccato/pkg/models"
 )
 
-// handleHome serves the HTML file from the static directory
+// handleHome serves the main SPA / index file from the configured static dir.
 func (ms *MusicServer) handleHome(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(ms.config.Server.StaticDir, "index.html"))
 }
 
-// setCORSHeaders sets CORS headers if enabled in config
+// setCORSHeaders sets permissive CORS headers when enabled (simple global *).
 func (ms *MusicServer) setCORSHeaders(w http.ResponseWriter) {
 	if ms.config.Server.EnableCORS {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 	}
 }
 
-// handleGetTracks handles the GET request for tracks
+// handleGetTracks returns tracks optionally filtered (search) or sorted.
 func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ms.setCORSHeaders(w) // Use config-based CORS
@@ -53,7 +53,7 @@ func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tracks)
 }
 
-// handleGetTrackCount handles the GET request for track count
+// handleGetTrackCount responds with a JSON count of all tracks.
 func (ms *MusicServer) handleGetTrackCount(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ms.setCORSHeaders(w)
@@ -68,7 +68,7 @@ func (ms *MusicServer) handleGetTrackCount(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleStreamTrack handles streaming of individual tracks
+// handleStreamTrack streams an individual track by ID with Range support.
 func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request) {
 	// Extract track ID from URL path
 	pathParts := strings.Split(r.URL.Path, "/")
@@ -128,7 +128,7 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleRangeRequest handles HTTP range requests for seeking
+// handleRangeRequest implements simple single-range byte serving for seeking.
 func (ms *MusicServer) handleRangeRequest(w http.ResponseWriter, _ *http.Request, file *os.File, fileSize int64, rangeHeader string) {
 	// Parse range header (e.g., "bytes=0-1023")
 	ranges := strings.TrimPrefix(rangeHeader, "bytes=")

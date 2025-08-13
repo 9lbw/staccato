@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// responseWriter wraps http.ResponseWriter to capture status code
+// responseWriter wraps http.ResponseWriter to capture status code & size.
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -25,7 +25,7 @@ func (rw *responseWriter) Write(data []byte) (int, error) {
 	return size, err
 }
 
-// requestLoggingMiddleware logs HTTP requests and responses
+// requestLoggingMiddleware logs HTTP requests (if enabled) with latency & size.
 func (ms *MusicServer) requestLoggingMiddleware(next http.Handler) http.Handler {
 	if !ms.config.Logging.RequestLogging {
 		return next
@@ -60,7 +60,7 @@ func (ms *MusicServer) requestLoggingMiddleware(next http.Handler) http.Handler 
 	})
 }
 
-// shouldLogRequest determines if a request should be logged
+// shouldLogRequest filters noisy paths from request logging output.
 func (ms *MusicServer) shouldLogRequest(path string) bool {
 	// Skip logging for common static assets and frequent endpoints
 	skipPaths := []string{
@@ -79,7 +79,7 @@ func (ms *MusicServer) shouldLogRequest(path string) bool {
 	return true
 }
 
-// formatBytes formats byte count as human readable string
+// formatBytes provides a simple approximate human-readable size.
 func formatBytes(bytes int) string {
 	if bytes == 0 {
 		return "0B"
@@ -105,7 +105,7 @@ func formatBytes(bytes int) string {
 	return fmt.Sprintf("%d%s", result, units[exp])
 }
 
-// panicRecoveryMiddleware recovers from panics and returns 500 error
+// panicRecoveryMiddleware intercepts panics returning HTTP 500 without crashing the process.
 func (ms *MusicServer) panicRecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
