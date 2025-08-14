@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -16,6 +17,7 @@ type Config struct {
 	Logging    LoggingConfig    `toml:"logging"`
 	Downloader DownloaderConfig `toml:"downloader"`
 	Ngrok      NgrokConfig      `toml:"ngrok"`
+	Auth       AuthConfig       `toml:"auth"`
 }
 
 // ServerConfig contains server-related configuration.
@@ -70,6 +72,14 @@ type NgrokConfig struct {
 	AuthProvider string `toml:"auth_provider"`
 }
 
+// AuthConfig contains authentication configuration.
+type AuthConfig struct {
+	Enabled         bool   `toml:"enabled"`
+	UsersFilePath   string `toml:"users_file_path"`
+	SessionDuration string `toml:"session_duration"`
+	SecureCookies   bool   `toml:"secure_cookies"`
+}
+
 // DefaultConfig returns a configuration populated with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -112,6 +122,12 @@ func DefaultConfig() *Config {
 			Region:       "us",
 			EnableAuth:   false,
 			AuthProvider: "google",
+		},
+		Auth: AuthConfig{
+			Enabled:         true,
+			UsersFilePath:   "./users.toml",
+			SessionDuration: "24h",
+			SecureCookies:   false,
 		},
 	}
 }
@@ -227,6 +243,20 @@ func (c *Config) Validate() error {
 	}
 	if !validLogFormats[c.Logging.Format] {
 		return fmt.Errorf("invalid log format: %s (must be text or json)", c.Logging.Format)
+	}
+
+	// Validate auth config
+	if c.Auth.Enabled {
+		if c.Auth.UsersFilePath == "" {
+			return fmt.Errorf("users file path cannot be empty when auth is enabled")
+		}
+		if c.Auth.SessionDuration == "" {
+			return fmt.Errorf("session duration cannot be empty when auth is enabled")
+		}
+		// Validate session duration format
+		if _, err := time.ParseDuration(c.Auth.SessionDuration); err != nil {
+			return fmt.Errorf("invalid session duration format: %s (examples: 24h, 30m, 1h30m)", c.Auth.SessionDuration)
+		}
 	}
 
 	return nil

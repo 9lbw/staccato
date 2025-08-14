@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"staccato/internal/auth"
 	"staccato/internal/config"
 	"staccato/internal/database"
 	"staccato/internal/downloader"
@@ -32,6 +33,7 @@ type MusicServer struct {
 	extractor    *metadata.Extractor
 	downloader   *downloader.Downloader
 	ngrokService *ngrok.Service
+	authService  *auth.Service
 	server       *http.Server
 	handler      http.Handler // root HTTP handler (router + middleware chain)
 	shutdownCh   chan struct{}
@@ -83,12 +85,19 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		ngrokSvc = nil
 	}
 
+	// Create auth service
+	authSvc, err := auth.NewService(&cfg.Auth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth service: %w", err)
+	}
+
 	server := &MusicServer{
 		db:           db,
 		config:       cfg,
 		extractor:    metadata.NewExtractor(cfg.Music.SupportedFormats),
 		downloader:   dl,
 		ngrokService: ngrokSvc,
+		authService:  authSvc,
 		shutdownCh:   make(chan struct{}),
 		logger:       logger,
 	}
@@ -234,6 +243,9 @@ func (ms *MusicServer) setupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Set up routes
+	mux.HandleFunc("/login", ms.handleLogin)
+	mux.HandleFunc("/api/auth/login", ms.handleAuthLogin)
+	mux.HandleFunc("/api/auth/logout", ms.handleAuthLogout)
 	mux.HandleFunc("/", ms.handleHome)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(ms.config.Server.StaticDir))))
 	mux.HandleFunc("/api/tracks", ms.handleGetTracks)
@@ -273,8 +285,9 @@ func (ms *MusicServer) setupRoutes() http.Handler {
 		}
 	})
 
-	// Apply middleware chain (order: panic recovery -> logging)
-	handler := ms.panicRecoveryMiddleware(mux)
+	// Apply middleware chain (order: auth -> panic recovery -> logging)
+	handler := ms.authMiddleware(mux)
+	handler = ms.panicRecoveryMiddleware(handler)
 	handler = ms.corsMiddleware(handler)
 	handler = ms.requestLoggingMiddleware(handler)
 	return handler

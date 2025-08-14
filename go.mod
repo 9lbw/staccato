@@ -16,6 +16,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tcolgate/mp3 v0.0.0-20170426193717-e79c5a46d300
 	golang.ngrok.com/ngrok/v2 v2.0.0
+	golang.org/x/crypto v0.41.0
 )
 
 require (
@@ -32,8 +33,8 @@ require (
 	github.com/mewpkg/term v0.0.0-20241026122259-37a80af23985 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.ngrok.com/muxado/v2 v2.0.1 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/term v0.30.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/term v0.34.0 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
 )

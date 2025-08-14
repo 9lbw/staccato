@@ -37,3 +37,9 @@ domain = ""
 region = "us"
 enable_auth = false
 auth_provider = "google"
+
+[auth]
+enabled = true
+users_file_path = "./users.toml"
+session_duration = "24h"
+secure_cookies = false

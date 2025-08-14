@@ -49,6 +49,7 @@ Thumbs.db
 # Configuration files (keep example)
 config.toml
 !config.example.toml
+users.toml
 
 # Database files
 *.db
