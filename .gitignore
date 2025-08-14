@@ -5,6 +5,10 @@
 *.so
 *.dylib
 
+# vscode
+.vscode/
+*.code-workspace
+
 # Test binary, built with `go test -c`
 *.test
 
