@@ -2,18 +2,29 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"staccato/pkg/models"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sirupsen/logrus"
 )
 
 // Database wraps a *sql.DB providing higher-level helper methods for
 // interacting with the application's persistent store. It is safe for
 // concurrent use because the underlying *sql.DB is concurrency-safe.
 type Database struct {
-	conn *sql.DB
+	conn   *sql.DB
+	logger *logrus.Logger
+
+	// Prepared statements for better performance
+	insertTrackStmt  *sql.Stmt
+	updateTrackStmt  *sql.Stmt
+	getTrackByIDStmt *sql.Stmt
+	trackExistsStmt  *sql.Stmt
+	removeTrackStmt  *sql.Stmt
+	searchTracksStmt *sql.Stmt
 }
 
 // NewDatabase opens (or creates) a SQLite database at the provided path and
@@ -21,27 +32,52 @@ type Database struct {
 // performance-oriented pragmas (WAL, cache sizing). Caller should Close() it
 // when finished.
 func NewDatabase(dbPath string) (*Database, error) {
+	// Initialize logger
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+
 	conn, err := sql.Open("sqlite3", dbPath+"?cache=shared&mode=rwc")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Configure connection pool
-	conn.SetMaxOpenConns(25)
-	conn.SetMaxIdleConns(5)
-	conn.SetConnMaxLifetime(5 * time.Minute)
+	// Configure connection pool - adjusted for SQLite
+	conn.SetMaxOpenConns(5) // SQLite works better with fewer connections
+	conn.SetMaxIdleConns(2)
+	conn.SetConnMaxLifetime(15 * time.Minute)
 
 	// Enable WAL mode for better concurrency
-	conn.Exec("PRAGMA journal_mode=WAL;")
-	conn.Exec("PRAGMA synchronous=NORMAL;")
-	conn.Exec("PRAGMA cache_size=1000;")
-	conn.Exec("PRAGMA temp_store=memory;")
-
-	db := &Database{conn: conn}
-	if err := db.createTables(); err != nil {
-		return nil, err
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA synchronous=NORMAL;",
+		"PRAGMA cache_size=2000;", // Increased cache size
+		"PRAGMA temp_store=memory;",
+		"PRAGMA foreign_keys=ON;",         // Enable foreign key constraints
+		"PRAGMA auto_vacuum=INCREMENTAL;", // Better space management
 	}
 
+	for _, pragma := range pragmas {
+		if _, err := conn.Exec(pragma); err != nil {
+			logger.WithError(err).WithField("pragma", pragma).Warn("Failed to set pragma")
+		}
+	}
+
+	db := &Database{
+		conn:   conn,
+		logger: logger,
+	}
+
+	if err := db.createTables(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	if err := db.prepareStatements(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to prepare statements: %w", err)
+	}
+
+	logger.WithField("db_path", dbPath).Info("Database initialized successfully")
 	return db, nil
 }
 
@@ -107,8 +143,13 @@ func (db *Database) createTables() error {
 	indices := []string{
 		"CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);",
 		"CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);",
+		"CREATE INDEX IF NOT EXISTS idx_tracks_artist_album ON tracks(artist, album, track_number);", // Composite index
+		"CREATE INDEX IF NOT EXISTS idx_tracks_search ON tracks(title, artist, album);",              // Search optimization
+		"CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path);",                      // Unique lookups
 		"CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id);",
 		"CREATE INDEX IF NOT EXISTS idx_playlist_tracks_position ON playlist_tracks(playlist_id, position);",
+		"CREATE INDEX IF NOT EXISTS idx_download_jobs_status ON download_jobs(status);",      // Status queries
+		"CREATE INDEX IF NOT EXISTS idx_download_jobs_created ON download_jobs(created_at);", // Time-based queries
 	}
 
 	tables := []string{tracksTable, playlistsTable, playlistTracksTable, downloadJobsTable}
@@ -156,33 +197,96 @@ func (db *Database) runMigrations() error {
 	return nil
 }
 
+// prepareStatements prepares commonly used SQL statements for better performance
+func (db *Database) prepareStatements() error {
+	var err error
+
+	// Insert track statement
+	db.insertTrackStmt, err = db.conn.Prepare(`
+		INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert track statement: %w", err)
+	}
+
+	// Update track statement
+	db.updateTrackStmt, err = db.conn.Prepare(`
+		UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?, has_album_art = ?, album_art_id = ?
+		WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update track statement: %w", err)
+	}
+
+	// Get track by ID statement
+	db.getTrackByIDStmt, err = db.conn.Prepare(`
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+		FROM tracks WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare get track by ID statement: %w", err)
+	}
+
+	// Track exists statement
+	db.trackExistsStmt, err = db.conn.Prepare(`
+		SELECT COUNT(*) FROM tracks WHERE file_path = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare track exists statement: %w", err)
+	}
+
+	// Remove track statement
+	db.removeTrackStmt, err = db.conn.Prepare(`
+		DELETE FROM tracks WHERE file_path = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare remove track statement: %w", err)
+	}
+
+	// Search tracks statement
+	db.searchTracksStmt, err = db.conn.Prepare(`
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+		FROM tracks
+		WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
+		ORDER BY artist, album, track_number, title`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare search tracks statement: %w", err)
+	}
+
+	return nil
+}
+
 // InsertTrack inserts a new track or updates an existing track (matched by
 // file_path) returning the track's database ID.
 func (db *Database) InsertTrack(track models.Track) (int, error) {
-	// Check if track already exists
+	// Check if track already exists using prepared statement
 	var existingID int
 	err := db.conn.QueryRow("SELECT id FROM tracks WHERE file_path = ?", track.FilePath).Scan(&existingID)
 	if err == nil {
-		// Track exists, update it
-		_, err = db.conn.Exec(`
-			UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?, has_album_art = ?, album_art_id = ?
-			WHERE id = ?`,
-			track.Title, track.Artist, track.Album, track.TrackNumber, track.Duration, track.FileSize, track.HasAlbumArt, track.AlbumArtID, existingID)
+		// Track exists, update it using prepared statement
+		_, err = db.updateTrackStmt.Exec(
+			track.Title, track.Artist, track.Album, track.TrackNumber,
+			track.Duration, track.FileSize, track.HasAlbumArt, track.AlbumArtID,
+			existingID)
+		if err != nil {
+			db.logger.WithError(err).WithField("track_id", existingID).Error("Failed to update existing track")
+		}
 		return existingID, err
 	}
 
-	// Insert new track
-	result, err := db.conn.Exec(`
-		INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		track.Title, track.Artist, track.Album, track.TrackNumber, track.Duration, track.FilePath, track.FileSize, track.HasAlbumArt, track.AlbumArtID)
+	// Insert new track using prepared statement
+	result, err := db.insertTrackStmt.Exec(
+		track.Title, track.Artist, track.Album, track.TrackNumber,
+		track.Duration, track.FilePath, track.FileSize, track.HasAlbumArt, track.AlbumArtID)
 
 	if err != nil {
+		db.logger.WithError(err).WithField("file_path", track.FilePath).Error("Failed to insert new track")
 		return 0, err
 	}
 
 	id, err := result.LastInsertId()
-	return int(id), err
+	if err != nil {
+		db.logger.WithError(err).Error("Failed to get last insert ID")
+		return 0, err
+	}
+
+	return int(id), nil
 }
 
 // GetAllTracks returns all tracks ordered by artist/album/track/title.
@@ -215,15 +319,20 @@ func (db *Database) GetTracksSortedByAlbum() ([]models.Track, error) {
 func (db *Database) GetTrackByID(id int) (*models.Track, error) {
 	var track models.Track
 	var albumArtID sql.NullString
-	err := db.conn.QueryRow(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
-		FROM tracks WHERE id = ?`, id).Scan(
+
+	err := db.getTrackByIDStmt.QueryRow(id).Scan(
 		&track.ID, &track.Title, &track.Artist, &track.Album,
-		&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID)
+		&track.TrackNumber, &track.Duration, &track.FilePath,
+		&track.FileSize, &track.HasAlbumArt, &albumArtID)
 
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("track with ID %d not found", id)
+		}
+		db.logger.WithError(err).WithField("track_id", id).Error("Failed to get track by ID")
 		return nil, err
 	}
+
 	if albumArtID.Valid {
 		track.AlbumArtID = albumArtID.String
 	}
@@ -347,14 +456,9 @@ func (db *Database) UpdatePlaylist(playlistID int, name, description, coverPath 
 // SearchTracks performs a simple LIKE-based search over title, artist and album.
 func (db *Database) SearchTracks(query string) ([]models.Track, error) {
 	searchQuery := "%" + query + "%"
-	rows, err := db.conn.Query(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
-		FROM tracks
-		WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
-		ORDER BY artist, album, track_number, title`,
-		searchQuery, searchQuery, searchQuery)
-
+	rows, err := db.searchTracksStmt.Query(searchQuery, searchQuery, searchQuery)
 	if err != nil {
+		db.logger.WithError(err).WithField("query", query).Error("Failed to search tracks")
 		return nil, err
 	}
 	defer rows.Close()
@@ -363,22 +467,45 @@ func (db *Database) SearchTracks(query string) ([]models.Track, error) {
 
 // RemoveTrackByPath deletes a track row identified by its file path.
 func (db *Database) RemoveTrackByPath(filePath string) error {
-	_, err := db.conn.Exec("DELETE FROM tracks WHERE file_path = ?", filePath)
+	_, err := db.removeTrackStmt.Exec(filePath)
+	if err != nil {
+		db.logger.WithError(err).WithField("file_path", filePath).Error("Failed to remove track by path")
+	}
 	return err
 }
 
 // TrackExists returns true if a track exists with the given file path.
 func (db *Database) TrackExists(filePath string) (bool, error) {
 	var count int
-	err := db.conn.QueryRow("SELECT COUNT(*) FROM tracks WHERE file_path = ?", filePath).Scan(&count)
+	err := db.trackExistsStmt.QueryRow(filePath).Scan(&count)
 	if err != nil {
+		db.logger.WithError(err).WithField("file_path", filePath).Error("Failed to check if track exists")
 		return false, err
 	}
 	return count > 0, nil
 }
 
-// Close closes the underlying database connection.
+// Close closes the underlying database connection and prepared statements.
 func (db *Database) Close() error {
+	// Close prepared statements
+	statements := []*sql.Stmt{
+		db.insertTrackStmt,
+		db.updateTrackStmt,
+		db.getTrackByIDStmt,
+		db.trackExistsStmt,
+		db.removeTrackStmt,
+		db.searchTracksStmt,
+	}
+
+	for _, stmt := range statements {
+		if stmt != nil {
+			if err := stmt.Close(); err != nil {
+				db.logger.WithError(err).Error("Failed to close prepared statement")
+			}
+		}
+	}
+
+	// Close database connection
 	if db.conn != nil {
 		return db.conn.Close()
 	}

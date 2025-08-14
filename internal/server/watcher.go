@@ -1,13 +1,13 @@
 package server
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/sirupsen/logrus"
 )
 
 // startFileWatcher initializes fsnotify watcher for recursive music dir monitoring.
@@ -27,7 +27,7 @@ func (ms *MusicServer) startFileWatcher() error {
 		return err
 	}
 
-	log.Printf("File watcher started for: %s", ms.config.Music.LibraryPath)
+	ms.logger.WithField("library_path", ms.config.Music.LibraryPath).Info("File watcher started")
 	return nil
 }
 
@@ -60,7 +60,7 @@ func (ms *MusicServer) watchFiles() {
 			if !ok {
 				return
 			}
-			log.Printf("Watcher error: %v", err)
+			ms.logger.WithError(err).Error("File watcher error")
 		}
 	}
 }
@@ -91,53 +91,58 @@ func (ms *MusicServer) handleFileEvent(event fsnotify.Event) {
 		// Check if it's a new directory
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			ms.watcher.Add(event.Name)
-			log.Printf("Watching new directory: %s", event.Name)
+			ms.logger.WithField("directory", event.Name).Info("Watching new directory")
 		}
 	}
 }
 
 // handleNewFile extracts metadata & inserts new track if unseen.
 func (ms *MusicServer) handleNewFile(filePath string) {
-	log.Printf("New audio file detected: %s", filePath)
+	ms.logger.WithField("file_path", filePath).Info("New audio file detected")
 
 	// Check if file already exists in database
 	exists, err := ms.db.TrackExists(filePath)
 	if err != nil {
-		log.Printf("Error checking if track exists: %v", err)
+		ms.logger.WithError(err).WithField("file_path", filePath).Error("Error checking if track exists")
 		return
 	}
 	if exists {
-		log.Printf("Track already exists in database: %s", filePath)
+		ms.logger.WithField("file_path", filePath).Debug("Track already exists in database")
 		return
 	}
 
 	// Extract metadata and add to database
 	track, err := ms.extractor.ExtractFromFile(filePath, 0)
 	if err != nil {
-		log.Printf("Error extracting metadata from %s: %v", filePath, err)
+		ms.logger.WithError(err).WithField("file_path", filePath).Error("Error extracting metadata")
 		return
 	}
 
 	id, err := ms.db.InsertTrack(track)
 	if err != nil {
-		log.Printf("Error inserting new track into database: %v", err)
+		ms.logger.WithError(err).Error("Error inserting new track into database")
 		return
 	}
 
-	log.Printf("Added new track: %s - %s (ID: %d)", track.Artist, track.Title, id)
+	ms.logger.WithFields(logrus.Fields{
+		"artist": track.Artist,
+		"title":  track.Title,
+		"album":  track.Album,
+		"id":     id,
+	}).Info("Added new track")
 }
 
 // handleRemovedFile removes track rows referencing deleted audio files.
 func (ms *MusicServer) handleRemovedFile(filePath string) {
-	log.Printf("Audio file removed: %s", filePath)
+	ms.logger.WithField("file_path", filePath).Info("Audio file removed")
 
 	err := ms.db.RemoveTrackByPath(filePath)
 	if err != nil {
-		log.Printf("Error removing track from database: %v", err)
+		ms.logger.WithError(err).WithField("file_path", filePath).Error("Error removing track from database")
 		return
 	}
 
-	log.Printf("Removed track from database: %s", filePath)
+	ms.logger.WithField("file_path", filePath).Info("Removed track from database")
 }
 
 // stopFileWatcher closes the watcher (idempotent).

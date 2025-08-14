@@ -2,9 +2,10 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code & size.
@@ -48,14 +49,14 @@ func (ms *MusicServer) requestLoggingMiddleware(next http.Handler) http.Handler 
 
 		// Skip logging for static assets and health checks to reduce noise
 		if ms.shouldLogRequest(r.URL.Path) {
-			log.Printf("[%s] %s %s - %d %s (%v)",
-				r.Method,
-				r.URL.Path,
-				r.RemoteAddr,
-				rw.statusCode,
-				formatBytes(rw.size),
-				duration.Round(time.Millisecond),
-			)
+			ms.logger.WithFields(logrus.Fields{
+				"method":        r.Method,
+				"path":          r.URL.Path,
+				"remote_addr":   r.RemoteAddr,
+				"status_code":   rw.statusCode,
+				"response_size": formatBytes(rw.size),
+				"duration_ms":   duration.Milliseconds(),
+			}).Info("HTTP request")
 		}
 	})
 }
@@ -123,7 +124,11 @@ func (ms *MusicServer) panicRecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("PANIC in %s %s: %v", r.Method, r.URL.Path, err)
+				ms.logger.WithFields(logrus.Fields{
+					"method": r.Method,
+					"path":   r.URL.Path,
+					"panic":  err,
+				}).Error("Panic recovered")
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 		}()

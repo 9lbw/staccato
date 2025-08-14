@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +11,18 @@ import (
 	"strings"
 
 	"staccato/pkg/models"
+
+	"github.com/sirupsen/logrus"
 )
+
+// respondJSON writes a JSON response
+func (ms *MusicServer) respondJSON(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		ms.logger.WithError(err).Error("Failed to encode JSON response")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
 
 // handleHome serves the main SPA / index file from the configured static dir.
 func (ms *MusicServer) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -21,10 +31,16 @@ func (ms *MusicServer) handleHome(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTracks returns tracks optionally filtered (search) or sorted.
 func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// Check parameters
+	// Validate search query if provided
 	searchQuery := r.URL.Query().Get("search")
+	if searchQuery != "" {
+		searchQuery = sanitizeInput(searchQuery)
+		if validationErr := ms.validateSearchQuery(searchQuery); validationErr != nil {
+			ms.respondWithValidationError(w, r, []ValidationError{*validationErr})
+			return
+		}
+	}
+
 	sortBy := r.URL.Query().Get("sort")
 	var tracks []models.Track
 	var err error
@@ -38,55 +54,59 @@ func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "Error retrieving tracks", http.StatusInternalServerError)
+		ms.respondWithError(w, r, http.StatusInternalServerError, "Error retrieving tracks", err)
 		return
 	}
 
-	json.NewEncoder(w).Encode(tracks)
+	ms.respondJSON(w, tracks)
 }
 
 // handleGetTrackCount responds with a JSON count of all tracks.
 func (ms *MusicServer) handleGetTrackCount(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	tracks, err := ms.db.GetAllTracks()
 	if err != nil {
-		http.Error(w, "Error retrieving track count", http.StatusInternalServerError)
+		ms.respondWithError(w, r, http.StatusInternalServerError, "Error retrieving track count", err)
 		return
 	}
 
 	response := map[string]int{"count": len(tracks)}
-	json.NewEncoder(w).Encode(response)
+	ms.respondJSON(w, response)
 }
 
 // handleStreamTrack streams an individual track by ID with Range support.
 func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request) {
-	// Extract track ID from URL path
+	// Extract and validate track ID from URL path
 	pathParts := strings.Split(r.URL.Path, "/")
-	if len(pathParts) < 3 {
-		http.Error(w, "Invalid track ID", http.StatusBadRequest)
-		return
-	}
-
-	trackIDStr := pathParts[2]
-	trackID, err := strconv.Atoi(trackIDStr)
-	if err != nil {
-		http.Error(w, "Invalid track ID", http.StatusBadRequest)
+	trackID, validationErr := ms.validateTrackID(pathParts, 3)
+	if validationErr != nil {
+		ms.respondWithValidationError(w, r, []ValidationError{*validationErr})
 		return
 	}
 
 	// Get track from database
 	track, err := ms.db.GetTrackByID(trackID)
 	if err != nil {
-		http.Error(w, "Track not found", http.StatusNotFound)
+		ms.respondWithError(w, r, http.StatusNotFound, "Track not found", err)
+		return
+	}
+
+	// Validate file path security
+	if validationErr := ms.validateFilePath(track.FilePath); validationErr != nil {
+		ms.respondWithValidationError(w, r, []ValidationError{*validationErr})
+		return
+	}
+
+	// Validate content type
+	if validationErr := ms.validateContentType(track.FilePath); validationErr != nil {
+		ms.respondWithValidationError(w, r, []ValidationError{*validationErr})
 		return
 	}
 
 	// Open the audio file
 	file, err := os.Open(track.FilePath)
 	if err != nil {
-		log.Printf("Error opening file %s: %v", track.FilePath, err)
-		http.Error(w, "Error opening audio file", http.StatusInternalServerError)
+		ms.logger.WithError(err).WithField("file_path", track.FilePath).Error("Error opening audio file")
+		ms.respondWithError(w, r, http.StatusInternalServerError, "Error opening audio file", err)
 		return
 	}
 	defer file.Close()
@@ -94,7 +114,7 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 	// Get file info for content length
 	stat, err := file.Stat()
 	if err != nil {
-		http.Error(w, "Error reading file info", http.StatusInternalServerError)
+		ms.respondWithError(w, r, http.StatusInternalServerError, "Error reading file info", err)
 		return
 	}
 
@@ -112,10 +132,15 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Stream the entire file
-	log.Printf("Streaming track: %s - %s", track.Artist, track.Title)
+	ms.logger.WithFields(logrus.Fields{
+		"track_id": trackID,
+		"artist":   track.Artist,
+		"title":    track.Title,
+	}).Info("Streaming track")
+
 	_, err = io.Copy(w, file)
 	if err != nil {
-		log.Printf("Error streaming file: %v", err)
+		ms.logger.WithError(err).WithField("track_id", trackID).Error("Error streaming file")
 	}
 }
 
