@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"staccato/internal/auth"
 	"staccato/internal/config"
 	"staccato/internal/metadata"
 
@@ -16,10 +17,14 @@ func createTestMusicServer() *MusicServer {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel) // Reduce noise in tests
 
+	// Create a minimal auth service for testing
+	authService, _ := auth.NewService(&cfg.Auth)
+
 	return &MusicServer{
-		config:    cfg,
-		extractor: metadata.NewExtractor(cfg.Music.SupportedFormats),
-		logger:    logger,
+		config:      cfg,
+		extractor:   metadata.NewExtractor(cfg.Music.SupportedFormats),
+		logger:      logger,
+		authService: authService,
 	}
 }
 

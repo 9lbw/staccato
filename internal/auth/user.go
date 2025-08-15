@@ -223,7 +223,32 @@ func (us *UserStore) saveUsersToFile() error {
 	}
 
 	return us.saveUsers(&config)
-} // hashPassword hashes a plaintext password using bcrypt
+}
+
+// DeleteUser removes a user from the store
+func (us *UserStore) DeleteUser(username string) error {
+	// Check if user exists
+	if _, exists := us.users[username]; !exists {
+		return fmt.Errorf("user does not exist")
+	}
+
+	// Remove from memory store
+	delete(us.users, username)
+
+	// Save to file
+	return us.saveUsersToFile()
+}
+
+// GetAllUsers returns a list of all usernames
+func (us *UserStore) GetAllUsers() []string {
+	var usernames []string
+	for username := range us.users {
+		usernames = append(usernames, username)
+	}
+	return usernames
+}
+
+// hashPassword hashes a plaintext password using bcrypt
 func hashPassword(password string) (string, error) {
 	// Use cost factor 12 for good security/performance balance
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)

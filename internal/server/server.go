@@ -109,6 +109,11 @@ func NewMusicServer(cfg *config.Config, db *database.Database) (*MusicServer, er
 		logger:       logger,
 	}
 
+	// Set up user data cleanup callback
+	authSvc.SetCleanupCallback(func(username string) error {
+		return db.DeleteTracksByOwner(username)
+	})
+
 	// Attach ingestion capabilities if downloader available
 	if server.downloader != nil {
 		server.downloader.AttachIngest(server.db, server.extractor)
@@ -203,6 +208,13 @@ func (ms *MusicServer) Start() {
 	if ms.config.Music.WatchForChanges {
 		if err := ms.startFileWatcher(); err != nil {
 			ms.logger.WithError(err).Warn("Could not start file watcher")
+		}
+	}
+
+	// Start user file watcher if auth is enabled
+	if ms.authService.IsEnabled() {
+		if err := ms.authService.StartUserWatcher(); err != nil {
+			ms.logger.WithError(err).Warn("Could not start user file watcher")
 		}
 	}
 
@@ -359,6 +371,12 @@ func (ms *MusicServer) Shutdown() {
 	// Stop file watcher
 	ms.logger.Info("Stopping file watcher")
 	ms.stopFileWatcher()
+
+	// Stop user file watcher
+	if ms.authService != nil {
+		ms.logger.Info("Stopping user file watcher")
+		ms.authService.StopUserWatcher()
+	}
 
 	// Stop ngrok service
 	if ms.ngrokService != nil {

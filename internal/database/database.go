@@ -702,6 +702,29 @@ func (db *Database) TrackExists(filePath string) (bool, error) {
 	return count > 0, nil
 }
 
+// DeleteTracksByOwner removes all tracks belonging to a specific user
+func (db *Database) DeleteTracksByOwner(owner string) error {
+	if !db.hasOwnerColumn {
+		// If no owner column exists, nothing to delete
+		return nil
+	}
+
+	result, err := db.conn.Exec("DELETE FROM tracks WHERE owner = ?", owner)
+	if err != nil {
+		db.logger.WithError(err).WithField("owner", owner).Error("Failed to delete tracks by owner")
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		db.logger.WithError(err).WithField("owner", owner).Error("Failed to get rows affected for delete tracks by owner")
+		return err
+	}
+
+	db.logger.WithField("owner", owner).WithField("tracks_deleted", rowsAffected).Info("Deleted tracks for user")
+	return nil
+}
+
 // Close closes the underlying database connection and prepared statements.
 func (db *Database) Close() error {
 	// Close prepared statements

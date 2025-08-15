@@ -89,6 +89,18 @@ func (sm *SessionManager) DeleteSession(sessionID string) {
 	sm.mutex.Unlock()
 }
 
+// DeleteUserSessions removes all sessions for a specific user
+func (sm *SessionManager) DeleteUserSessions(username string) {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+
+	for id, session := range sm.sessions {
+		if session.Username == username {
+			delete(sm.sessions, id)
+		}
+	}
+}
+
 // RefreshSession extends the session expiration time
 func (sm *SessionManager) RefreshSession(sessionID string) bool {
 	sm.mutex.Lock()
