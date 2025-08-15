@@ -252,10 +252,37 @@ func (s *Service) handleUsersFileChange() {
 		previousUsers[username] = true
 	}
 
-	// Reload users from file
-	newUserStore, err := NewUserStore(s.config.UsersFilePath)
+	// Add a small delay to ensure file write is complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Reload users from file with retry logic
+	var newUserStore *UserStore
+	var err error
+
+	// Try to reload up to 3 times with increasing delays
+	for attempt := 0; attempt < 3; attempt++ {
+		newUserStore, err = NewUserStore(s.config.UsersFilePath)
+		if err == nil {
+			// Check if we got a reasonable number of users
+			// If we get 0 users when we had users before, it's likely a temporary file state
+			currentUserCount := len(newUserStore.GetAllUsers())
+			previousUserCount := len(previousUsers)
+
+			// If we had users before but now have 0, wait and retry
+			if previousUserCount > 0 && currentUserCount == 0 {
+				s.logger.Warn("Users file appears empty, retrying...")
+				time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
+				continue
+			}
+			break
+		}
+
+		s.logger.WithError(err).Warnf("Failed to reload users (attempt %d/3), retrying...", attempt+1)
+		time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
+	}
+
 	if err != nil {
-		s.logger.WithError(err).Error("Failed to reload users after file change")
+		s.logger.WithError(err).Error("Failed to reload users after multiple attempts")
 		return
 	}
 
@@ -303,4 +330,9 @@ func (s *Service) handleUserDeletion(username string) {
 // GetUserFolderManager returns the user folder manager
 func (s *Service) GetUserFolderManager() *UserFolderManager {
 	return s.userFolderManager
+}
+
+// GetUserStore returns the user store for testing purposes
+func (s *Service) GetUserStore() *UserStore {
+	return s.userStore
 }
