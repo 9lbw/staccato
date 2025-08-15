@@ -74,10 +74,15 @@ type NgrokConfig struct {
 
 // AuthConfig contains authentication configuration.
 type AuthConfig struct {
-	Enabled         bool   `toml:"enabled"`
-	UsersFilePath   string `toml:"users_file_path"`
-	SessionDuration string `toml:"session_duration"`
-	SecureCookies   bool   `toml:"secure_cookies"`
+	Enabled           bool   `toml:"enabled"`
+	UsersFilePath     string `toml:"users_file_path"`
+	SessionDuration   string `toml:"session_duration"`
+	SecureCookies     bool   `toml:"secure_cookies"`
+	AllowRegistration bool   `toml:"allow_registration"`
+	UserFolders       bool   `toml:"user_folders"`
+	UserMusicPath     string `toml:"user_music_path"`
+	AllowUploads      bool   `toml:"allow_uploads"`
+	MaxUploadSize     int64  `toml:"max_upload_size_mb"`
 }
 
 // DefaultConfig returns a configuration populated with sensible defaults.
@@ -124,10 +129,15 @@ func DefaultConfig() *Config {
 			AuthProvider: "google",
 		},
 		Auth: AuthConfig{
-			Enabled:         true,
-			UsersFilePath:   "./users.toml",
-			SessionDuration: "24h",
-			SecureCookies:   false,
+			Enabled:           true,
+			UsersFilePath:     "./users.toml",
+			SessionDuration:   "24h",
+			SecureCookies:     false,
+			AllowRegistration: true,
+			UserFolders:       false,
+			UserMusicPath:     "./users",
+			AllowUploads:      true,
+			MaxUploadSize:     100, // 100MB default
 		},
 	}
 }
@@ -256,6 +266,11 @@ func (c *Config) Validate() error {
 		// Validate session duration format
 		if _, err := time.ParseDuration(c.Auth.SessionDuration); err != nil {
 			return fmt.Errorf("invalid session duration format: %s (examples: 24h, 30m, 1h30m)", c.Auth.SessionDuration)
+		}
+
+		// Validate user music path if user folders are enabled
+		if c.Auth.UserFolders && c.Auth.UserMusicPath == "" {
+			return fmt.Errorf("user music path cannot be empty when user folders are enabled")
 		}
 	}
 

@@ -23,6 +23,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Context keys for request context values
+type contextKey string
+
+const (
+	UserContextKey contextKey = "user"
+)
+
 // MusicServer encapsulates application state and HTTP handling for the music
 // service including DB access, metadata extraction, optional downloader,
 // optional ngrok tunneling, and filesystem watching.
@@ -118,7 +125,17 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 		return nil
 	}
 
-	ms.logger.WithField("library_path", ms.config.Music.LibraryPath).Info("Scanning music library")
+	// Determine which path to scan based on user_folders setting
+	scanPath := ms.config.Music.LibraryPath
+	if ms.authService.GetUserFolderManager().IsEnabled() {
+		scanPath = ms.config.Auth.UserMusicPath
+		ms.logger.WithFields(logrus.Fields{
+			"library_path":    ms.config.Music.LibraryPath,
+			"user_music_path": scanPath,
+		}).Info("User folders enabled - scanning user music directory")
+	} else {
+		ms.logger.WithField("library_path", scanPath).Info("Scanning music library")
+	}
 
 	var wg sync.WaitGroup
 	var trackCount int64
@@ -135,6 +152,13 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 					wg.Done()
 					continue
 				}
+
+				// Determine ownership if user folders are enabled
+				if ms.authService.GetUserFolderManager().IsEnabled() {
+					owner := ms.authService.GetUserFolderManager().GetOwnerFromPath(path)
+					track.Owner = owner
+				}
+
 				_, err = ms.db.InsertTrack(track)
 				if err != nil {
 					ms.logger.WithError(err).Error("Error inserting track into database")
@@ -144,6 +168,7 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 						"artist": track.Artist,
 						"title":  track.Title,
 						"album":  track.Album,
+						"owner":  track.Owner,
 					}).Debug("Added track")
 				}
 				wg.Done()
@@ -152,7 +177,7 @@ func (ms *MusicServer) ScanMusicLibrary() error {
 	}
 
 	// Walk directory and enqueue jobs
-	walkErr := filepath.Walk(ms.config.Music.LibraryPath, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(scanPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -199,7 +224,11 @@ func (ms *MusicServer) Start() {
 	}).Info("Staccato server starting")
 
 	if ms.config.Music.WatchForChanges {
-		ms.logger.WithField("library_path", ms.config.Music.LibraryPath).Info("File watcher monitoring library")
+		watchPath := ms.config.Music.LibraryPath
+		if ms.authService.GetUserFolderManager().IsEnabled() {
+			watchPath = ms.config.Auth.UserMusicPath
+		}
+		ms.logger.WithField("watch_path", watchPath).Info("File watcher monitoring library")
 	}
 	ms.logger.WithField("local_address", localAddress).Info("Local access available")
 
@@ -246,10 +275,13 @@ func (ms *MusicServer) setupRoutes() http.Handler {
 	mux.HandleFunc("/login", ms.handleLogin)
 	mux.HandleFunc("/api/auth/login", ms.handleAuthLogin)
 	mux.HandleFunc("/api/auth/logout", ms.handleAuthLogout)
+	mux.HandleFunc("/api/auth/register", ms.handleAuthRegister)
+	mux.HandleFunc("/api/config", ms.handleGetConfig)
 	mux.HandleFunc("/", ms.handleHome)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(ms.config.Server.StaticDir))))
 	mux.HandleFunc("/api/tracks", ms.handleGetTracks)
 	mux.HandleFunc("/api/tracks/count", ms.handleGetTrackCount)
+	mux.HandleFunc("/api/tracks/upload", ms.handleUploadTrack)
 	mux.HandleFunc("/stream/", ms.handleStreamTrack)
 	mux.HandleFunc("/albumart/", ms.handleAlbumArt) // Album art endpoint
 	mux.HandleFunc("/health", ms.handleHealthCheck) // Health check endpoint

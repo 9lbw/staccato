@@ -9,10 +9,11 @@ import (
 
 // Service provides authentication functionality
 type Service struct {
-	config         *config.AuthConfig
-	userStore      *UserStore
-	sessionManager *SessionManager
-	enabled        bool
+	config            *config.AuthConfig
+	userStore         *UserStore
+	sessionManager    *SessionManager
+	userFolderManager *UserFolderManager
+	enabled           bool
 }
 
 // NewService creates a new authentication service
@@ -39,11 +40,15 @@ func NewService(config *config.AuthConfig) (*Service, error) {
 	// Create session manager
 	sessionManager := NewSessionManager(duration, config.SecureCookies)
 
+	// Create user folder manager
+	userFolderManager := NewUserFolderManager(config.UserFolders, config.UserMusicPath)
+
 	return &Service{
-		config:         config,
-		userStore:      userStore,
-		sessionManager: sessionManager,
-		enabled:        true,
+		config:            config,
+		userStore:         userStore,
+		sessionManager:    sessionManager,
+		userFolderManager: userFolderManager,
+		enabled:           true,
 	}, nil
 }
 
@@ -100,4 +105,40 @@ func (s *Service) RefreshSession(sessionID string) bool {
 // GetSessionManager returns the session manager (for middleware)
 func (s *Service) GetSessionManager() *SessionManager {
 	return s.sessionManager
+}
+
+// IsRegistrationAllowed returns whether user registration is enabled
+func (s *Service) IsRegistrationAllowed() bool {
+	return s.enabled && s.config.AllowRegistration
+}
+
+// Register creates a new user account
+func (s *Service) Register(username, password string) error {
+	if !s.IsRegistrationAllowed() {
+		return fmt.Errorf("registration is disabled")
+	}
+
+	// Validate input
+	if username == "" || password == "" {
+		return fmt.Errorf("username and password are required")
+	}
+
+	// Register user in store
+	if err := s.userStore.RegisterUser(username, password); err != nil {
+		return fmt.Errorf("failed to register user: %w", err)
+	}
+
+	// Create user folder if enabled
+	if err := s.userFolderManager.CreateUserFolder(username); err != nil {
+		// If folder creation fails, we should probably remove the user
+		// but for now, we'll just return the error
+		return fmt.Errorf("failed to create user folder: %w", err)
+	}
+
+	return nil
+}
+
+// GetUserFolderManager returns the user folder manager
+func (s *Service) GetUserFolderManager() *UserFolderManager {
+	return s.userFolderManager
 }

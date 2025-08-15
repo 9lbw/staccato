@@ -187,7 +187,10 @@ func (ms *MusicServer) validateFilePath(filePath string) *ValidationError {
 		}
 	}
 
-	// Get absolute music directory path
+	// Determine allowed directories based on user folder configuration
+	var allowedDirs []string
+
+	// Always allow the main library path
 	absMusicDir, err := filepath.Abs(ms.config.Music.LibraryPath)
 	if err != nil {
 		return &ValidationError{
@@ -196,18 +199,36 @@ func (ms *MusicServer) validateFilePath(filePath string) *ValidationError {
 			Code:    "CONFIG_ERROR",
 		}
 	}
+	allowedDirs = append(allowedDirs, absMusicDir)
 
-	// Check if file is within music directory
-	relPath, err := filepath.Rel(absMusicDir, absPath)
-	if err != nil || strings.HasPrefix(relPath, "..") {
-		return &ValidationError{
-			Field:   "file_path",
-			Message: "File path outside allowed directory",
-			Code:    "PATH_TRAVERSAL_DENIED",
+	// If user folders are enabled, also allow the user music path
+	if ms.authService.GetUserFolderManager().IsEnabled() {
+		absUserMusicDir, err := filepath.Abs(ms.config.Auth.UserMusicPath)
+		if err != nil {
+			return &ValidationError{
+				Field:   "file_path",
+				Message: "Server configuration error",
+				Code:    "CONFIG_ERROR",
+			}
+		}
+		allowedDirs = append(allowedDirs, absUserMusicDir)
+	}
+
+	// Check if file is within any of the allowed directories
+	for _, allowedDir := range allowedDirs {
+		relPath, err := filepath.Rel(allowedDir, absPath)
+		if err == nil && !strings.HasPrefix(relPath, "..") {
+			// File is within this allowed directory
+			return nil
 		}
 	}
 
-	return nil
+	// File is not within any allowed directory
+	return &ValidationError{
+		Field:   "file_path",
+		Message: "File path outside allowed directory",
+		Code:    "PATH_TRAVERSAL_DENIED",
+	}
 }
 
 // validateURL validates download URLs

@@ -82,6 +82,29 @@
             <div class="content-area">
                 <h2 class="section-title">MUSIC DOWNLOADS</h2>
                 
+                <!-- Upload Form -->
+                <div class="upload-form" id="uploadForm">
+                    <h3>Upload Music Files</h3>
+                    <div class="upload-input-group">
+                        <input type="file" id="uploadFile" class="upload-input" 
+                               accept=".mp3,.flac,.wav,.m4a" multiple
+                               onchange="handleFileSelection(event)">
+                        <label for="uploadFile" class="upload-label">
+                            Choose Files to Upload
+                        </label>
+                        <button type="button" class="btn-upload" onclick="startUpload()" disabled>
+                            Upload
+                        </button>
+                    </div>
+                    <div class="selected-files" id="selectedFiles" style="display: none;">
+                        <div class="selected-files-label">Selected files:</div>
+                        <div class="selected-files-list" id="selectedFilesList"></div>
+                    </div>
+                    <div style="font-size: 12px; color: rgba(255, 255, 255, 0.5); margin-top: 10px;">
+                        Supports MP3, FLAC, WAV, and M4A files. Files will be uploaded to your personal music folder.
+                    </div>
+                </div>
+                
                 <!-- Download Form -->
                 <div class="download-form">
                     <h3>Add New Music</h3>

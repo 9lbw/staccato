@@ -43,3 +43,6 @@ enabled = true
 users_file_path = "./users.toml"
 session_duration = "24h"
 secure_cookies = false
+allow_registration = true
+user_folders = false
+user_music_path = "./users"

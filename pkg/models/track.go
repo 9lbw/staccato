@@ -14,6 +14,7 @@ type Track struct {
 	FileSize    int64  `json:"fileSize"`
 	HasAlbumArt bool   `json:"hasAlbumArt"`
 	AlbumArtID  string `json:"albumArtId,omitempty"` // For caching album art
+	Owner       string `json:"-"`                    // don't expose owner to client, used for filtering
 }
 
 // Playlist represents a user-created playlist.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -39,9 +40,9 @@ func (ms *MusicServer) authMiddleware(next http.Handler) http.Handler {
 		// Refresh session on each request
 		ms.authService.RefreshSession(session.ID)
 
-		// Add user info to request context if needed
-		// ctx := context.WithValue(r.Context(), "user", session.Username)
-		// r = r.WithContext(ctx)
+		// Add user info to request context
+		ctx := context.WithValue(r.Context(), UserContextKey, session.Username)
+		r = r.WithContext(ctx)
 
 		next.ServeHTTP(w, r)
 	})
@@ -53,6 +54,7 @@ func isPublicPath(path string) bool {
 		"/login",
 		"/api/auth/login",
 		"/api/auth/logout",
+		"/api/auth/register",
 		"/static/",
 		"/health",
 	}
@@ -154,4 +156,55 @@ func (ms *MusicServer) handleAuthLogout(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+// handleAuthRegister handles user registration requests
+func (ms *MusicServer) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if registration is allowed
+	if !ms.authService.IsRegistrationAllowed() {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Registration is disabled"})
+		return
+	}
+
+	var credentials struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&credentials); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if credentials.Username == "" || credentials.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Username and password required"})
+		return
+	}
+
+	// Validate password strength (basic check)
+	if len(credentials.Password) < 6 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Password must be at least 6 characters"})
+		return
+	}
+
+	// Register the user
+	if err := ms.authService.Register(credentials.Username, credentials.Password); err != nil {
+		ms.logger.WithError(err).WithField("username", credentials.Username).Warn("Failed registration attempt")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	ms.logger.WithField("username", credentials.Username).Info("User registered successfully")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Registration successful"})
 }

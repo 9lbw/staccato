@@ -1,10 +1,165 @@
 // Download management functions
 
+let selectedFiles = [];
+
 // Handle download input enter key
 function handleDownloadInput(event) {
     if (event.key === 'Enter') {
         startDownload();
     }
+}
+
+// Handle file selection for upload
+function handleFileSelection(event) {
+    const files = Array.from(event.target.files);
+    const uploadBtn = document.querySelector('.btn-upload');
+    const selectedFilesContainer = document.getElementById('selectedFiles');
+    const selectedFilesList = document.getElementById('selectedFilesList');
+    
+    selectedFiles = files;
+    
+    if (files.length > 0) {
+        // Show selected files
+        selectedFilesContainer.style.display = 'block';
+        selectedFilesList.innerHTML = files.map((file, index) => `
+            <div class="selected-file-item">
+                <span class="selected-file-name">${escapeHtml(file.name)}</span>
+                <span class="selected-file-size">${formatFileSize(file.size)}</span>
+                <button class="selected-file-remove" onclick="removeSelectedFile(${index})">×</button>
+            </div>
+        `).join('');
+        
+        // Enable upload button
+        uploadBtn.disabled = false;
+    } else {
+        // Hide selected files and disable upload button
+        selectedFilesContainer.style.display = 'none';
+        uploadBtn.disabled = true;
+        selectedFiles = [];
+    }
+}
+
+// Remove a selected file
+function removeSelectedFile(index) {
+    selectedFiles.splice(index, 1);
+    
+    // Update file input
+    const fileInput = document.getElementById('uploadFile');
+    const dt = new DataTransfer();
+    selectedFiles.forEach(file => dt.items.add(file));
+    fileInput.files = dt.files;
+    
+    // Trigger change event to update UI
+    handleFileSelection({ target: fileInput });
+}
+
+// Format file size for display
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// Start file upload
+async function startUpload() {
+    if (selectedFiles.length === 0) {
+        alert('Please select files to upload');
+        return;
+    }
+    
+    const uploadBtn = document.querySelector('.btn-upload');
+    const uploadForm = document.querySelector('.upload-form');
+    
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = 'Uploading...';
+    
+    // Create progress container
+    let progressContainer = document.getElementById('uploadProgress');
+    if (!progressContainer) {
+        progressContainer = document.createElement('div');
+        progressContainer.id = 'uploadProgress';
+        progressContainer.className = 'upload-progress';
+        progressContainer.innerHTML = `
+            <div class="upload-progress-bar">
+                <div class="upload-progress-fill" id="uploadProgressFill"></div>
+            </div>
+            <div class="upload-progress-text" id="uploadProgressText">Preparing upload...</div>
+        `;
+        uploadForm.appendChild(progressContainer);
+    }
+    
+    const progressFill = document.getElementById('uploadProgressFill');
+    const progressText = document.getElementById('uploadProgressText');
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        try {
+            progressText.textContent = `Uploading ${file.name} (${i + 1}/${selectedFiles.length})...`;
+            progressFill.style.width = `${(i / selectedFiles.length) * 100}%`;
+            
+            const response = await fetch('/api/tracks/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                successCount++;
+                console.log(`Successfully uploaded: ${file.name}`);
+            } else {
+                errorCount++;
+                const errorText = await response.text();
+                console.error(`Failed to upload ${file.name}:`, errorText);
+            }
+        } catch (error) {
+            errorCount++;
+            console.error(`Error uploading ${file.name}:`, error);
+        }
+    }
+    
+    // Update final progress
+    progressFill.style.width = '100%';
+    if (errorCount === 0) {
+        progressText.textContent = `Successfully uploaded ${successCount} file${successCount !== 1 ? 's' : ''}!`;
+        progressContainer.style.borderColor = 'rgba(25, 135, 84, 0.3)';
+        
+        // Show success message
+        showNotification(`Successfully uploaded ${successCount} file${successCount !== 1 ? 's' : ''}!`);
+        
+        // Refresh library if we're currently viewing it
+        if (currentSection === 'library') {
+            loadTracks();
+        }
+    } else {
+        progressText.textContent = `Upload completed: ${successCount} successful, ${errorCount} failed`;
+        progressContainer.style.borderColor = 'rgba(220, 53, 69, 0.3)';
+        
+        showNotification(`Upload completed with ${errorCount} error${errorCount !== 1 ? 's' : ''}`);
+    }
+    
+    // Reset form after a delay
+    setTimeout(() => {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload';
+        
+        // Clear file selection
+        const fileInput = document.getElementById('uploadFile');
+        fileInput.value = '';
+        selectedFiles = [];
+        document.getElementById('selectedFiles').style.display = 'none';
+        
+        // Remove progress container
+        if (progressContainer.parentNode) {
+            progressContainer.parentNode.removeChild(progressContainer);
+        }
+    }, 3000);
 }
 
 // Start download
@@ -158,8 +313,43 @@ showSection = function(section) {
 
 // Initialize downloads when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    checkUploadAvailability();
+    
     if (currentSection === 'downloads') {
         refreshDownloadJobs();
         startDownloadAutoRefresh();
     }
 });
+
+// Check if upload functionality should be available
+async function checkUploadAvailability() {
+    try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+            const config = await response.json();
+            const uploadForm = document.getElementById('uploadForm');
+            
+            if (uploadForm) {
+                if (config.auth.enabled && config.auth.user_folders && config.auth.allow_uploads) {
+                    // Show upload form
+                    uploadForm.style.display = 'block';
+                } else {
+                    // Hide upload form
+                    uploadForm.style.display = 'none';
+                }
+            }
+        } else {
+            console.warn('Failed to load configuration, hiding upload form');
+            const uploadForm = document.getElementById('uploadForm');
+            if (uploadForm) {
+                uploadForm.style.display = 'none';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading configuration:', error);
+        const uploadForm = document.getElementById('uploadForm');
+        if (uploadForm) {
+            uploadForm.style.display = 'none';
+        }
+    }
+}

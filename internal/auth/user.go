@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/crypto/bcrypt"
@@ -14,6 +15,8 @@ import (
 type User struct {
 	Username string `toml:"username"`
 	Password string `toml:"password"` // Will be hashed after first load
+	Role     string `toml:"role"`     // admin, user
+	Created  string `toml:"created"`  // Creation timestamp
 }
 
 // UserConfig represents the structure of users.toml
@@ -97,6 +100,8 @@ func (us *UserStore) createDefaultUser() error {
 	defaultUser := User{
 		Username: "admin",
 		Password: hashedPassword,
+		Role:     "admin",
+		Created:  time.Now().Format("2006-01-02 15:04:05"),
 	}
 
 	config := UserConfig{
@@ -172,10 +177,53 @@ func (us *UserStore) GetUser(username string) *User {
 	return &User{
 		Username: user.Username,
 		Password: "", // Don't expose password hash
+		Role:     user.Role,
+		Created:  user.Created,
 	}
 }
 
-// hashPassword hashes a plaintext password using bcrypt
+// RegisterUser adds a new user to the store
+func (us *UserStore) RegisterUser(username, password string) error {
+	// Check if user already exists
+	if _, exists := us.users[username]; exists {
+		return fmt.Errorf("user already exists")
+	}
+
+	// Hash the password
+	hashedPassword, err := hashPassword(password)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Create new user
+	newUser := User{
+		Username: username,
+		Password: hashedPassword,
+		Role:     "user", // Default role
+		Created:  time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	// Add to memory store
+	us.users[username] = &newUser
+
+	// Save to file
+	return us.saveUsersToFile()
+}
+
+// saveUsersToFile saves the current users to the TOML file
+func (us *UserStore) saveUsersToFile() error {
+	// Convert users map back to slice for saving
+	var usersList []User
+	for _, user := range us.users {
+		usersList = append(usersList, *user)
+	}
+
+	config := UserConfig{
+		Users: usersList,
+	}
+
+	return us.saveUsers(&config)
+} // hashPassword hashes a plaintext password using bcrypt
 func hashPassword(password string) (string, error) {
 	// Use cost factor 12 for good security/performance balance
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)

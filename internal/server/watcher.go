@@ -21,13 +21,19 @@ func (ms *MusicServer) startFileWatcher() error {
 	// Start monitoring in a goroutine
 	go ms.watchFiles()
 
+	// Determine which path to watch based on user_folders setting
+	watchPath := ms.config.Music.LibraryPath
+	if ms.authService.GetUserFolderManager().IsEnabled() {
+		watchPath = ms.config.Auth.UserMusicPath
+	}
+
 	// Add the music directory to the watcher
-	err = ms.addDirectoryToWatcher(ms.config.Music.LibraryPath)
+	err = ms.addDirectoryToWatcher(watchPath)
 	if err != nil {
 		return err
 	}
 
-	ms.logger.WithField("library_path", ms.config.Music.LibraryPath).Info("File watcher started")
+	ms.logger.WithField("watch_path", watchPath).Info("File watcher started")
 	return nil
 }
 
@@ -118,6 +124,12 @@ func (ms *MusicServer) handleNewFile(filePath string) {
 		return
 	}
 
+	// Determine ownership if user folders are enabled
+	if ms.authService.GetUserFolderManager().IsEnabled() {
+		owner := ms.authService.GetUserFolderManager().GetOwnerFromPath(filePath)
+		track.Owner = owner
+	}
+
 	id, err := ms.db.InsertTrack(track)
 	if err != nil {
 		ms.logger.WithError(err).Error("Error inserting new track into database")
@@ -128,6 +140,7 @@ func (ms *MusicServer) handleNewFile(filePath string) {
 		"artist": track.Artist,
 		"title":  track.Title,
 		"album":  track.Album,
+		"owner":  track.Owner,
 		"id":     id,
 	}).Info("Added new track")
 }

@@ -120,6 +120,50 @@
             cursor: not-allowed;
         }
 
+        .register-btn {
+            background: #333;
+            color: #fff;
+            border: 1px solid #666;
+            padding: 12px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            font-family: inherit;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .register-btn:hover {
+            background: #555;
+        }
+
+        .register-btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .form-toggle {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .form-toggle a {
+            color: #fff;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .form-toggle a:hover {
+            color: #ccc;
+        }
+
         .error-message {
             background: #000;
             border: 1px solid #666;
@@ -194,6 +238,7 @@
         <div class="login-body">
             <div id="error-message" class="error-message"></div>
 
+            <!-- Login Form -->
             <form id="login-form">
                 <div class="form-group">
                     <label for="username">Username</label>
@@ -208,6 +253,31 @@
                 <button type="submit" class="login-btn" id="login-btn">Login</button>
             </form>
 
+            <!-- Registration Form -->
+            <form id="register-form" style="display: none;">
+                <div class="form-group">
+                    <label for="reg-username">Username</label>
+                    <input type="text" id="reg-username" name="username" required autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label for="reg-password">Password</label>
+                    <input type="password" id="reg-password" name="password" required autocomplete="new-password">
+                </div>
+
+                <div class="form-group">
+                    <label for="reg-password-confirm">Confirm Password</label>
+                    <input type="password" id="reg-password-confirm" name="password-confirm" required autocomplete="new-password">
+                </div>
+
+                <button type="submit" class="register-btn" id="register-btn">Register</button>
+            </form>
+
+            <div class="form-toggle">
+                <span id="toggle-text">Don't have an account?</span>
+                <a href="#" id="toggle-link" onclick="toggleForm()">Register</a>
+            </div>
+
             <div id="loading" class="loading">
                 Authenticating...
             </div>
@@ -215,59 +285,156 @@
     </div>
 
     <script>
+        let isLoginMode = true;
+
+        // Check if registration is enabled on page load
+        window.addEventListener('load', async function() {
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'OPTIONS'
+                });
+                if (response.status === 405) {
+                    // Registration endpoint exists but doesn't allow OPTIONS
+                    // This means registration is likely available
+                } else if (response.status === 403) {
+                    // Registration is disabled, hide the toggle
+                    document.querySelector('.form-toggle').style.display = 'none';
+                }
+            } catch (error) {
+                // If there's an error, hide registration option
+                document.querySelector('.form-toggle').style.display = 'none';
+            }
+        });
+
+        function toggleForm() {
+            const loginForm = document.getElementById('login-form');
+            const registerForm = document.getElementById('register-form');
+            const toggleText = document.getElementById('toggle-text');
+            const toggleLink = document.getElementById('toggle-link');
+            const subtitle = document.querySelector('.subtitle');
+            const errorDiv = document.getElementById('error-message');
+
+            // Clear any errors
+            errorDiv.style.display = 'none';
+
+            if (isLoginMode) {
+                // Switch to register mode
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'block';
+                toggleText.textContent = 'Already have an account?';
+                toggleLink.textContent = 'Login';
+                subtitle.textContent = 'User Registration';
+                isLoginMode = false;
+            } else {
+                // Switch to login mode
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+                toggleText.textContent = 'Don\'t have an account?';
+                toggleLink.textContent = 'Register';
+                subtitle.textContent = 'Music Server Authentication';
+                isLoginMode = true;
+            }
+        }
+
+        // Login form handler
         document.getElementById('login-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
+            
+            await handleAuth('/api/auth/login', { username, password }, 'Authenticating...');
+        });
+
+        // Registration form handler
+        document.getElementById('register-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('reg-username').value;
+            const password = document.getElementById('reg-password').value;
+            const passwordConfirm = document.getElementById('reg-password-confirm').value;
+
+            // Validate password confirmation
+            if (password !== passwordConfirm) {
+                showError('Passwords do not match');
+                return;
+            }
+
+            await handleAuth('/api/auth/register', { username, password }, 'Creating account...');
+        });
+
+        async function handleAuth(endpoint, credentials, loadingText) {
             const errorDiv = document.getElementById('error-message');
             const loadingDiv = document.getElementById('loading');
-            const loginBtn = document.getElementById('login-btn');
+            const submitBtn = isLoginMode ? document.getElementById('login-btn') : document.getElementById('register-btn');
+            const originalText = submitBtn.textContent;
             
             // Clear previous error
             errorDiv.style.display = 'none';
             
             // Show loading state
+            loadingDiv.textContent = loadingText;
             loadingDiv.style.display = 'block';
-            loginBtn.disabled = true;
+            submitBtn.disabled = true;
             
             try {
-                const response = await fetch('/api/auth/login', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify(credentials)
                 });
                 
+                const data = await response.json();
+                
                 if (response.ok) {
-                    // Login successful, redirect to main page
-                    window.location.href = '/';
+                    if (endpoint.includes('register')) {
+                        // Registration successful, show success message and switch to login
+                        showSuccess('Registration successful! Please log in.');
+                        setTimeout(() => {
+                            if (!isLoginMode) toggleForm();
+                        }, 2000);
+                    } else {
+                        // Login successful, redirect to main page
+                        window.location.href = '/';
+                    }
                 } else {
-                    const data = await response.json();
-                    showError(data.error || 'Authentication failed');
+                    showError(data.error || 'Operation failed');
                 }
             } catch (error) {
                 showError('Network error. Please try again.');
-                console.error('Login error:', error);
+                console.error('Auth error:', error);
             } finally {
                 // Reset loading state
                 loadingDiv.style.display = 'none';
-                loginBtn.disabled = false;
-                loginBtn.textContent = 'Login';
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
-        });
+        }
         
         function showError(message) {
             const errorDiv = document.getElementById('error-message');
             errorDiv.textContent = message;
+            errorDiv.style.color = '#ff6666';
+            errorDiv.style.display = 'block';
+        }
+
+        function showSuccess(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.color = '#66ff66';
             errorDiv.style.display = 'block';
         }
         
         // Enter key support
         document.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
-                document.getElementById('login-form').requestSubmit();
+                if (isLoginMode) {
+                    document.getElementById('login-form').requestSubmit();
+                } else {
+                    document.getElementById('register-form').requestSubmit();
+                }
             }
         });
     </script>

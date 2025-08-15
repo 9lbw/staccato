@@ -46,10 +46,15 @@ staccato-*
 ehthumbs.db
 Thumbs.db
 
-# Configuration files (keep example)
-config.toml
-!config.example.toml
-users.toml
+# User content and data
+music/*
+!music/.gitkeep
+users/
+users/*
+
+# Session and authentication files  
+cookies*.txt
+*.cookie
 
 # Database files
 *.db
@@ -58,17 +63,16 @@ users.toml
 *.db-shm
 *.db-wal
 
-# Log files
-*.log
-logs/
-
-# Music files (user content)
-music/*
-!music/.gitkeep
+# Configuration files (keep example)
+config.toml
+!config.example.toml
+users.toml
 
 # Temporary files
 *.tmp
 *.temp
+server.log
+*.log
 
 # Environment files
 .env

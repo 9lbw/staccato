@@ -18,6 +18,9 @@ type Database struct {
 	conn   *sql.DB
 	logger *logrus.Logger
 
+	// Track if owner column exists (for handling migrations)
+	hasOwnerColumn bool
+
 	// Prepared statements for better performance
 	insertTrackStmt  *sql.Stmt
 	updateTrackStmt  *sql.Stmt
@@ -146,6 +149,7 @@ func (db *Database) createTables() error {
 		"CREATE INDEX IF NOT EXISTS idx_tracks_artist_album ON tracks(artist, album, track_number);", // Composite index
 		"CREATE INDEX IF NOT EXISTS idx_tracks_search ON tracks(title, artist, album);",              // Search optimization
 		"CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path);",                      // Unique lookups
+		// "CREATE INDEX IF NOT EXISTS idx_tracks_owner ON tracks(owner);",                              // User filtering - created after migration
 		"CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id);",
 		"CREATE INDEX IF NOT EXISTS idx_playlist_tracks_position ON playlist_tracks(playlist_id, position);",
 		"CREATE INDEX IF NOT EXISTS idx_download_jobs_status ON download_jobs(status);",      // Status queries
@@ -194,6 +198,32 @@ func (db *Database) runMigrations() error {
 		}
 	}
 
+	// Migration 2: Add owner column to tracks table if it doesn't exist
+	var ownerColumnExists bool
+	err = db.conn.QueryRow(`
+		SELECT COUNT(*) > 0 
+		FROM pragma_table_info('tracks') 
+		WHERE name = 'owner'`).Scan(&ownerColumnExists)
+
+	if err != nil {
+		return err
+	}
+
+	if !ownerColumnExists {
+		_, err = db.conn.Exec("ALTER TABLE tracks ADD COLUMN owner TEXT")
+		if err != nil {
+			return err
+		}
+
+		// Create index for the new owner column
+		_, err = db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tracks_owner ON tracks(owner)")
+		if err != nil {
+			return err
+		}
+
+		db.logger.Info("Added owner column and index to tracks table")
+	}
+
 	return nil
 }
 
@@ -201,26 +231,53 @@ func (db *Database) runMigrations() error {
 func (db *Database) prepareStatements() error {
 	var err error
 
+	// Check if owner column exists before preparing statements with it
+	err = db.conn.QueryRow(`
+		SELECT COUNT(*) > 0 
+		FROM pragma_table_info('tracks') 
+		WHERE name = 'owner'`).Scan(&db.hasOwnerColumn)
+	if err != nil {
+		return fmt.Errorf("failed to check for owner column: %w", err)
+	}
+
 	// Insert track statement
-	db.insertTrackStmt, err = db.conn.Prepare(`
-		INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if db.hasOwnerColumn {
+		db.insertTrackStmt, err = db.conn.Prepare(`
+			INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, owner)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	} else {
+		db.insertTrackStmt, err = db.conn.Prepare(`
+			INSERT INTO tracks (title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert track statement: %w", err)
 	}
 
 	// Update track statement
-	db.updateTrackStmt, err = db.conn.Prepare(`
-		UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?, has_album_art = ?, album_art_id = ?
-		WHERE id = ?`)
+	if db.hasOwnerColumn {
+		db.updateTrackStmt, err = db.conn.Prepare(`
+			UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?, has_album_art = ?, album_art_id = ?, owner = ?
+			WHERE id = ?`)
+	} else {
+		db.updateTrackStmt, err = db.conn.Prepare(`
+			UPDATE tracks SET title = ?, artist = ?, album = ?, track_number = ?, duration = ?, file_size = ?, has_album_art = ?, album_art_id = ?
+			WHERE id = ?`)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to prepare update track statement: %w", err)
 	}
 
 	// Get track by ID statement
-	db.getTrackByIDStmt, err = db.conn.Prepare(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
-		FROM tracks WHERE id = ?`)
+	if db.hasOwnerColumn {
+		db.getTrackByIDStmt, err = db.conn.Prepare(`
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, owner
+			FROM tracks WHERE id = ?`)
+	} else {
+		db.getTrackByIDStmt, err = db.conn.Prepare(`
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+			FROM tracks WHERE id = ?`)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to prepare get track by ID statement: %w", err)
 	}
@@ -240,11 +297,19 @@ func (db *Database) prepareStatements() error {
 	}
 
 	// Search tracks statement
-	db.searchTracksStmt, err = db.conn.Prepare(`
-		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
-		FROM tracks
-		WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
-		ORDER BY artist, album, track_number, title`)
+	if db.hasOwnerColumn {
+		db.searchTracksStmt, err = db.conn.Prepare(`
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, owner
+			FROM tracks
+			WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
+			ORDER BY artist, album, track_number, title`)
+	} else {
+		db.searchTracksStmt, err = db.conn.Prepare(`
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+			FROM tracks
+			WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
+			ORDER BY artist, album, track_number, title`)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to prepare search tracks statement: %w", err)
 	}
@@ -260,10 +325,17 @@ func (db *Database) InsertTrack(track models.Track) (int, error) {
 	err := db.conn.QueryRow("SELECT id FROM tracks WHERE file_path = ?", track.FilePath).Scan(&existingID)
 	if err == nil {
 		// Track exists, update it using prepared statement
-		_, err = db.updateTrackStmt.Exec(
-			track.Title, track.Artist, track.Album, track.TrackNumber,
-			track.Duration, track.FileSize, track.HasAlbumArt, track.AlbumArtID,
-			existingID)
+		if db.hasOwnerColumn {
+			_, err = db.updateTrackStmt.Exec(
+				track.Title, track.Artist, track.Album, track.TrackNumber,
+				track.Duration, track.FileSize, track.HasAlbumArt, track.AlbumArtID, track.Owner,
+				existingID)
+		} else {
+			_, err = db.updateTrackStmt.Exec(
+				track.Title, track.Artist, track.Album, track.TrackNumber,
+				track.Duration, track.FileSize, track.HasAlbumArt, track.AlbumArtID,
+				existingID)
+		}
 		if err != nil {
 			db.logger.WithError(err).WithField("track_id", existingID).Error("Failed to update existing track")
 		}
@@ -271,9 +343,16 @@ func (db *Database) InsertTrack(track models.Track) (int, error) {
 	}
 
 	// Insert new track using prepared statement
-	result, err := db.insertTrackStmt.Exec(
-		track.Title, track.Artist, track.Album, track.TrackNumber,
-		track.Duration, track.FilePath, track.FileSize, track.HasAlbumArt, track.AlbumArtID)
+	var result sql.Result
+	if db.hasOwnerColumn {
+		result, err = db.insertTrackStmt.Exec(
+			track.Title, track.Artist, track.Album, track.TrackNumber,
+			track.Duration, track.FilePath, track.FileSize, track.HasAlbumArt, track.AlbumArtID, track.Owner)
+	} else {
+		result, err = db.insertTrackStmt.Exec(
+			track.Title, track.Artist, track.Album, track.TrackNumber,
+			track.Duration, track.FilePath, track.FileSize, track.HasAlbumArt, track.AlbumArtID)
+	}
 
 	if err != nil {
 		db.logger.WithError(err).WithField("file_path", track.FilePath).Error("Failed to insert new track")
@@ -291,10 +370,39 @@ func (db *Database) InsertTrack(track models.Track) (int, error) {
 
 // GetAllTracks returns all tracks ordered by artist/album/track/title.
 func (db *Database) GetAllTracks() ([]models.Track, error) {
-	rows, err := db.conn.Query(`
+	var query string
+	if db.hasOwnerColumn {
+		query = `
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		ORDER BY artist, album, track_number, title`
+	} else {
+		query = `
 		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
 		FROM tracks
-		ORDER BY artist, album, track_number, title`)
+		ORDER BY artist, album, track_number, title`
+	}
+
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTrackRows(rows)
+}
+
+// GetTracksByOwner returns all tracks for a specific user ordered by artist/album/track/title.
+func (db *Database) GetTracksByOwner(owner string) ([]models.Track, error) {
+	if !db.hasOwnerColumn {
+		// If no owner column, return empty result for user-specific queries
+		return []models.Track{}, nil
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		WHERE owner = ?
+		ORDER BY artist, album, track_number, title`, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -304,10 +412,39 @@ func (db *Database) GetAllTracks() ([]models.Track, error) {
 
 // GetTracksSortedByAlbum returns all tracks ordered by album/track/title.
 func (db *Database) GetTracksSortedByAlbum() ([]models.Track, error) {
-	rows, err := db.conn.Query(`
+	var query string
+	if db.hasOwnerColumn {
+		query = `
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		ORDER BY album, track_number, title`
+	} else {
+		query = `
 		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
 		FROM tracks
-		ORDER BY album, track_number, title`)
+		ORDER BY album, track_number, title`
+	}
+
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTrackRows(rows)
+}
+
+// GetTracksSortedByAlbumForOwner returns tracks for a specific user ordered by album/track/title.
+func (db *Database) GetTracksSortedByAlbumForOwner(owner string) ([]models.Track, error) {
+	if !db.hasOwnerColumn {
+		// If no owner column, return empty result for user-specific queries
+		return []models.Track{}, nil
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		WHERE owner = ?
+		ORDER BY album, track_number, title`, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -320,16 +457,63 @@ func (db *Database) GetTrackByID(id int) (*models.Track, error) {
 	var track models.Track
 	var albumArtID sql.NullString
 
-	err := db.getTrackByIDStmt.QueryRow(id).Scan(
+	if db.hasOwnerColumn {
+		err := db.getTrackByIDStmt.QueryRow(id).Scan(
+			&track.ID, &track.Title, &track.Artist, &track.Album,
+			&track.TrackNumber, &track.Duration, &track.FilePath,
+			&track.FileSize, &track.HasAlbumArt, &albumArtID, &track.Owner)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, fmt.Errorf("track with ID %d not found", id)
+			}
+			db.logger.WithError(err).WithField("track_id", id).Error("Failed to get track by ID")
+			return nil, err
+		}
+	} else {
+		err := db.getTrackByIDStmt.QueryRow(id).Scan(
+			&track.ID, &track.Title, &track.Artist, &track.Album,
+			&track.TrackNumber, &track.Duration, &track.FilePath,
+			&track.FileSize, &track.HasAlbumArt, &albumArtID)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, fmt.Errorf("track with ID %d not found", id)
+			}
+			db.logger.WithError(err).WithField("track_id", id).Error("Failed to get track by ID")
+			return nil, err
+		}
+		track.Owner = "" // Set empty owner for backward compatibility
+	}
+
+	if albumArtID.Valid {
+		track.AlbumArtID = albumArtID.String
+	}
+	return &track, nil
+}
+
+// GetTrackByIDForOwner returns a track only if it belongs to the specified owner.
+func (db *Database) GetTrackByIDForOwner(id int, owner string) (*models.Track, error) {
+	if !db.hasOwnerColumn {
+		// If no owner column, fall back to regular GetTrackByID
+		return db.GetTrackByID(id)
+	}
+
+	var track models.Track
+	var albumArtID sql.NullString
+
+	err := db.conn.QueryRow(`
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks WHERE id = ? AND owner = ?`, id, owner).Scan(
 		&track.ID, &track.Title, &track.Artist, &track.Album,
 		&track.TrackNumber, &track.Duration, &track.FilePath,
-		&track.FileSize, &track.HasAlbumArt, &albumArtID)
+		&track.FileSize, &track.HasAlbumArt, &albumArtID, &track.Owner)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("track with ID %d not found", id)
+			return nil, fmt.Errorf("track with ID %d not found for user %s", id, owner)
 		}
-		db.logger.WithError(err).WithField("track_id", id).Error("Failed to get track by ID")
+		db.logger.WithError(err).WithField("track_id", id).WithField("owner", owner).Error("Failed to get track by ID for owner")
 		return nil, err
 	}
 
@@ -388,12 +572,24 @@ func (db *Database) GetAllPlaylists() ([]models.Playlist, error) {
 
 // GetPlaylistTracks returns tracks for a playlist ordered by stored position.
 func (db *Database) GetPlaylistTracks(playlistID int) ([]models.Track, error) {
-	rows, err := db.conn.Query(`
+	var query string
+	if db.hasOwnerColumn {
+		query = `
+		SELECT t.id, t.title, t.artist, t.album, t.track_number, t.duration, t.file_path, t.file_size, t.has_album_art, t.album_art_id, COALESCE(t.owner, '') as owner
+		FROM tracks t
+		JOIN playlist_tracks pt ON t.id = pt.track_id
+		WHERE pt.playlist_id = ?
+		ORDER BY pt.position`
+	} else {
+		query = `
 		SELECT t.id, t.title, t.artist, t.album, t.track_number, t.duration, t.file_path, t.file_size, t.has_album_art, t.album_art_id
 		FROM tracks t
 		JOIN playlist_tracks pt ON t.id = pt.track_id
 		WHERE pt.playlist_id = ?
-		ORDER BY pt.position`, playlistID)
+		ORDER BY pt.position`
+	}
+
+	rows, err := db.conn.Query(query, playlistID)
 	if err != nil {
 		return nil, err
 	}
@@ -459,6 +655,27 @@ func (db *Database) SearchTracks(query string) ([]models.Track, error) {
 	rows, err := db.searchTracksStmt.Query(searchQuery, searchQuery, searchQuery)
 	if err != nil {
 		db.logger.WithError(err).WithField("query", query).Error("Failed to search tracks")
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTrackRows(rows)
+}
+
+// SearchTracksForOwner performs a search for tracks belonging to a specific user.
+func (db *Database) SearchTracksForOwner(query, owner string) ([]models.Track, error) {
+	if !db.hasOwnerColumn {
+		// If no owner column, return empty result for user-specific queries
+		return []models.Track{}, nil
+	}
+
+	searchQuery := "%" + query + "%"
+	rows, err := db.conn.Query(`
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		WHERE (title LIKE ? OR artist LIKE ? OR album LIKE ?) AND owner = ?
+		ORDER BY artist, album, track_number, title`, searchQuery, searchQuery, searchQuery, owner)
+	if err != nil {
+		db.logger.WithError(err).WithField("query", query).WithField("owner", owner).Error("Failed to search tracks for owner")
 		return nil, err
 	}
 	defer rows.Close()
@@ -567,10 +784,34 @@ func scanTrackRows(rows *sql.Rows) ([]models.Track, error) {
 	for rows.Next() {
 		var track models.Track
 		var albumArtID sql.NullString
-		if err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
-			&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID); err != nil {
+
+		// Get column names to determine if owner column exists
+		columns, err := rows.Columns()
+		if err != nil {
 			return nil, err
 		}
+
+		hasOwner := false
+		for _, col := range columns {
+			if col == "owner" {
+				hasOwner = true
+				break
+			}
+		}
+
+		if hasOwner {
+			if err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
+				&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID, &track.Owner); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&track.ID, &track.Title, &track.Artist, &track.Album,
+				&track.TrackNumber, &track.Duration, &track.FilePath, &track.FileSize, &track.HasAlbumArt, &albumArtID); err != nil {
+				return nil, err
+			}
+			track.Owner = "" // Set empty owner for backward compatibility
+		}
+
 		if albumArtID.Valid {
 			track.AlbumArtID = albumArtID.String
 		}

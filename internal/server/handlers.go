@@ -45,12 +45,33 @@ func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 	var tracks []models.Track
 	var err error
 
+	// Check if user folders are enabled and get current user
+	userFolderManager := ms.authService.GetUserFolderManager()
+	var currentUser string
+	if userFolderManager.IsEnabled() {
+		if user := r.Context().Value(UserContextKey); user != nil {
+			currentUser = user.(string)
+		}
+	}
+
 	if searchQuery != "" {
-		tracks, err = ms.db.SearchTracks(searchQuery)
+		if userFolderManager.IsEnabled() && currentUser != "" {
+			tracks, err = ms.db.SearchTracksForOwner(searchQuery, currentUser)
+		} else {
+			tracks, err = ms.db.SearchTracks(searchQuery)
+		}
 	} else if sortBy == "album" {
-		tracks, err = ms.db.GetTracksSortedByAlbum()
+		if userFolderManager.IsEnabled() && currentUser != "" {
+			tracks, err = ms.db.GetTracksSortedByAlbumForOwner(currentUser)
+		} else {
+			tracks, err = ms.db.GetTracksSortedByAlbum()
+		}
 	} else {
-		tracks, err = ms.db.GetAllTracks()
+		if userFolderManager.IsEnabled() && currentUser != "" {
+			tracks, err = ms.db.GetTracksByOwner(currentUser)
+		} else {
+			tracks, err = ms.db.GetAllTracks()
+		}
 	}
 
 	if err != nil {
@@ -63,7 +84,24 @@ func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTrackCount responds with a JSON count of all tracks.
 func (ms *MusicServer) handleGetTrackCount(w http.ResponseWriter, r *http.Request) {
-	tracks, err := ms.db.GetAllTracks()
+	var tracks []models.Track
+	var err error
+
+	// Check if user folders are enabled and get current user
+	userFolderManager := ms.authService.GetUserFolderManager()
+	var currentUser string
+	if userFolderManager.IsEnabled() {
+		if user := r.Context().Value(UserContextKey); user != nil {
+			currentUser = user.(string)
+		}
+	}
+
+	if userFolderManager.IsEnabled() && currentUser != "" {
+		tracks, err = ms.db.GetTracksByOwner(currentUser)
+	} else {
+		tracks, err = ms.db.GetAllTracks()
+	}
+
 	if err != nil {
 		ms.respondWithError(w, r, http.StatusInternalServerError, "Error retrieving track count", err)
 		return
@@ -83,8 +121,24 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get track from database
-	track, err := ms.db.GetTrackByID(trackID)
+	// Check if user folders are enabled and get current user
+	userFolderManager := ms.authService.GetUserFolderManager()
+	var currentUser string
+	if userFolderManager.IsEnabled() {
+		if user := r.Context().Value(UserContextKey); user != nil {
+			currentUser = user.(string)
+		}
+	}
+
+	// Get track from database (with ownership check if user folders enabled)
+	var track *models.Track
+	var err error
+	if userFolderManager.IsEnabled() && currentUser != "" {
+		track, err = ms.db.GetTrackByIDForOwner(trackID, currentUser)
+	} else {
+		track, err = ms.db.GetTrackByID(trackID)
+	}
+
 	if err != nil {
 		ms.respondWithError(w, r, http.StatusNotFound, "Track not found", err)
 		return
