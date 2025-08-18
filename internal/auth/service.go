@@ -29,10 +29,15 @@ func NewService(config *config.AuthConfig) (*Service, error) {
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
 	if !config.Enabled {
+		// Even when auth is disabled, create a disabled user folder manager
+		// to prevent nil pointer dereferences
+		userFolderManager := NewUserFolderManager(false, "")
+
 		return &Service{
-			config:  config,
-			enabled: false,
-			logger:  logger,
+			config:            config,
+			userFolderManager: userFolderManager,
+			enabled:           false,
+			logger:            logger,
 		}, nil
 	}
 
