@@ -298,6 +298,21 @@ function stopDownloadAutoRefresh() {
     }
 }
 
+// Clean up intervals when the page is being unloaded
+window.addEventListener('beforeunload', () => {
+    stopDownloadAutoRefresh();
+});
+
+// Also clean up when the page becomes hidden (user switches tabs)
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopDownloadAutoRefresh();
+    } else if (currentSection === 'downloads') {
+        // Restart refresh when page becomes visible again
+        startDownloadAutoRefresh();
+    }
+});
+
 // Start auto-refresh when showing downloads section
 const originalShowSection = showSection;
 showSection = function(section) {

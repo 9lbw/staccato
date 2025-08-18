@@ -391,6 +391,30 @@ func (db *Database) GetAllTracks() ([]models.Track, error) {
 	return scanTrackRows(rows)
 }
 
+// GetMainLibraryTracks returns only tracks from the main library (with empty/null owner) ordered by artist/album/track/title.
+func (db *Database) GetMainLibraryTracks() ([]models.Track, error) {
+	var query string
+	if db.hasOwnerColumn {
+		query = `
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		WHERE owner IS NULL OR owner = ''
+		ORDER BY artist, album, track_number, title`
+	} else {
+		query = `
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+		FROM tracks
+		ORDER BY artist, album, track_number, title`
+	}
+
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTrackRows(rows)
+}
+
 // GetTracksByOwner returns all tracks for a specific user ordered by artist/album/track/title.
 func (db *Database) GetTracksByOwner(owner string) ([]models.Track, error) {
 	if !db.hasOwnerColumn {
@@ -417,6 +441,30 @@ func (db *Database) GetTracksSortedByAlbum() ([]models.Track, error) {
 		query = `
 		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
 		FROM tracks
+		ORDER BY album, track_number, title`
+	} else {
+		query = `
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+		FROM tracks
+		ORDER BY album, track_number, title`
+	}
+
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTrackRows(rows)
+}
+
+// GetMainLibraryTracksSortedByAlbum returns only tracks from the main library (with empty/null owner) ordered by album/track/title.
+func (db *Database) GetMainLibraryTracksSortedByAlbum() ([]models.Track, error) {
+	var query string
+	if db.hasOwnerColumn {
+		query = `
+		SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+		FROM tracks
+		WHERE owner IS NULL OR owner = ''
 		ORDER BY album, track_number, title`
 	} else {
 		query = `
@@ -515,6 +563,37 @@ func (db *Database) GetTrackByIDForOwner(id int, owner string) (*models.Track, e
 		}
 		db.logger.WithError(err).WithField("track_id", id).WithField("owner", owner).Error("Failed to get track by ID for owner")
 		return nil, err
+	}
+
+	if albumArtID.Valid {
+		track.AlbumArtID = albumArtID.String
+	}
+	return &track, nil
+}
+
+// GetMainLibraryTrackByID returns a track only if it belongs to the main library (empty/null owner).
+func (db *Database) GetMainLibraryTrackByID(id int) (*models.Track, error) {
+	var track models.Track
+	var albumArtID sql.NullString
+
+	if db.hasOwnerColumn {
+		err := db.conn.QueryRow(`
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+			FROM tracks WHERE id = ? AND (owner IS NULL OR owner = '')`, id).Scan(
+			&track.ID, &track.Title, &track.Artist, &track.Album,
+			&track.TrackNumber, &track.Duration, &track.FilePath,
+			&track.FileSize, &track.HasAlbumArt, &albumArtID, &track.Owner)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, fmt.Errorf("track with ID %d not found in main library", id)
+			}
+			db.logger.WithError(err).WithField("track_id", id).Error("Failed to get main library track by ID")
+			return nil, err
+		}
+	} else {
+		// If no owner column exists, all tracks are main library tracks
+		return db.GetTrackByID(id)
 	}
 
 	if albumArtID.Valid {
@@ -655,6 +734,33 @@ func (db *Database) SearchTracks(query string) ([]models.Track, error) {
 	rows, err := db.searchTracksStmt.Query(searchQuery, searchQuery, searchQuery)
 	if err != nil {
 		db.logger.WithError(err).WithField("query", query).Error("Failed to search tracks")
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTrackRows(rows)
+}
+
+// SearchMainLibraryTracks performs a search only on tracks from the main library (with empty/null owner).
+func (db *Database) SearchMainLibraryTracks(query string) ([]models.Track, error) {
+	searchQuery := "%" + query + "%"
+	var querySQL string
+	if db.hasOwnerColumn {
+		querySQL = `
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id, COALESCE(owner, '') as owner
+			FROM tracks
+			WHERE (title LIKE ? OR artist LIKE ? OR album LIKE ?) AND (owner IS NULL OR owner = '')
+			ORDER BY artist, album, track_number, title`
+	} else {
+		querySQL = `
+			SELECT id, title, artist, album, track_number, duration, file_path, file_size, has_album_art, album_art_id
+			FROM tracks
+			WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
+			ORDER BY artist, album, track_number, title`
+	}
+
+	rows, err := db.conn.Query(querySQL, searchQuery, searchQuery, searchQuery)
+	if err != nil {
+		db.logger.WithError(err).WithField("query", query).Error("Failed to search main library tracks")
 		return nil, err
 	}
 	defer rows.Close()

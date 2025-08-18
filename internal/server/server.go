@@ -351,7 +351,7 @@ func (ms *MusicServer) Shutdown() {
 	}
 
 	// Create a context with timeout for graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Stop the HTTP server gracefully

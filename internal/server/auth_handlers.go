@@ -26,6 +26,11 @@ func (ms *MusicServer) authMiddleware(next http.Handler) http.Handler {
 		sessionManager := ms.authService.GetSessionManager()
 		session, valid := sessionManager.GetSessionFromRequest(r)
 		if !valid {
+			// Add cache-control headers to prevent caching of auth-required pages
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+
 			// Redirect to login page for browser requests
 			if isBrowserRequest(r) {
 				http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)

@@ -45,32 +45,38 @@ func (ms *MusicServer) handleGetTracks(w http.ResponseWriter, r *http.Request) {
 	var tracks []models.Track
 	var err error
 
-	// Check if user folders are enabled and get current user
-	userFolderManager := ms.authService.GetUserFolderManager()
+	// Check if auth and user folders are both enabled and get current user
+	authService := ms.authService
+	userFolderManager := authService.GetUserFolderManager()
 	var currentUser string
-	if userFolderManager.IsEnabled() {
+	if authService.IsEnabled() && userFolderManager.IsEnabled() {
 		if user := r.Context().Value(UserContextKey); user != nil {
 			currentUser = user.(string)
 		}
 	}
 
+	// Determine which data source to use:
+	// - If auth is enabled AND user folders are enabled AND we have a current user: show user's tracks
+	// - Otherwise: show only main library tracks (excludes user tracks)
+	showUserTracks := authService.IsEnabled() && userFolderManager.IsEnabled() && currentUser != ""
+
 	if searchQuery != "" {
-		if userFolderManager.IsEnabled() && currentUser != "" {
+		if showUserTracks {
 			tracks, err = ms.db.SearchTracksForOwner(searchQuery, currentUser)
 		} else {
-			tracks, err = ms.db.SearchTracks(searchQuery)
+			tracks, err = ms.db.SearchMainLibraryTracks(searchQuery)
 		}
 	} else if sortBy == "album" {
-		if userFolderManager.IsEnabled() && currentUser != "" {
+		if showUserTracks {
 			tracks, err = ms.db.GetTracksSortedByAlbumForOwner(currentUser)
 		} else {
-			tracks, err = ms.db.GetTracksSortedByAlbum()
+			tracks, err = ms.db.GetMainLibraryTracksSortedByAlbum()
 		}
 	} else {
-		if userFolderManager.IsEnabled() && currentUser != "" {
+		if showUserTracks {
 			tracks, err = ms.db.GetTracksByOwner(currentUser)
 		} else {
-			tracks, err = ms.db.GetAllTracks()
+			tracks, err = ms.db.GetMainLibraryTracks()
 		}
 	}
 
@@ -87,19 +93,25 @@ func (ms *MusicServer) handleGetTrackCount(w http.ResponseWriter, r *http.Reques
 	var tracks []models.Track
 	var err error
 
-	// Check if user folders are enabled and get current user
-	userFolderManager := ms.authService.GetUserFolderManager()
+	// Check if auth and user folders are both enabled and get current user
+	authService := ms.authService
+	userFolderManager := authService.GetUserFolderManager()
 	var currentUser string
-	if userFolderManager.IsEnabled() {
+	if authService.IsEnabled() && userFolderManager.IsEnabled() {
 		if user := r.Context().Value(UserContextKey); user != nil {
 			currentUser = user.(string)
 		}
 	}
 
-	if userFolderManager.IsEnabled() && currentUser != "" {
+	// Determine which data source to use:
+	// - If auth is enabled AND user folders are enabled AND we have a current user: show user's tracks
+	// - Otherwise: show only main library tracks (excludes user tracks)
+	showUserTracks := authService.IsEnabled() && userFolderManager.IsEnabled() && currentUser != ""
+
+	if showUserTracks {
 		tracks, err = ms.db.GetTracksByOwner(currentUser)
 	} else {
-		tracks, err = ms.db.GetAllTracks()
+		tracks, err = ms.db.GetMainLibraryTracks()
 	}
 
 	if err != nil {
@@ -121,22 +133,28 @@ func (ms *MusicServer) handleStreamTrack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check if user folders are enabled and get current user
-	userFolderManager := ms.authService.GetUserFolderManager()
+	// Check if auth and user folders are both enabled and get current user
+	authService := ms.authService
+	userFolderManager := authService.GetUserFolderManager()
 	var currentUser string
-	if userFolderManager.IsEnabled() {
+	if authService.IsEnabled() && userFolderManager.IsEnabled() {
 		if user := r.Context().Value(UserContextKey); user != nil {
 			currentUser = user.(string)
 		}
 	}
 
+	// Determine which data source to use:
+	// - If auth is enabled AND user folders are enabled AND we have a current user: show user's tracks
+	// - Otherwise: show only main library tracks (excludes user tracks)
+	showUserTracks := authService.IsEnabled() && userFolderManager.IsEnabled() && currentUser != ""
+
 	// Get track from database (with ownership check if user folders enabled)
 	var track *models.Track
 	var err error
-	if userFolderManager.IsEnabled() && currentUser != "" {
+	if showUserTracks {
 		track, err = ms.db.GetTrackByIDForOwner(trackID, currentUser)
 	} else {
-		track, err = ms.db.GetTrackByID(trackID)
+		track, err = ms.db.GetMainLibraryTrackByID(trackID)
 	}
 
 	if err != nil {

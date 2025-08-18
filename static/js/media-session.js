@@ -327,3 +327,10 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Media Session Manager ready');
     console.log('Media Session Status:', window.mediaSessionManager.getStatus());
 });
+
+// Clean up media session when page is unloaded
+window.addEventListener('beforeunload', () => {
+    if (window.mediaSessionManager) {
+        window.mediaSessionManager.stopPositionUpdates();
+    }
+});
